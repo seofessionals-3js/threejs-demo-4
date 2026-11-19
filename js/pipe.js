@@ -1,13 +1,14 @@
 // The pipeline. Two passes make the drawing (paper colour with the week in alpha, then normals + line weight class + depth),
 // one composer makes the site, and one full screen shader turns depth and normals into hierarchical architectural ink,
-// reveals it by week, and pours the site in behind the same weeks.
+// reveals it by week, and builds the site in behind the same weeks: each part first as a field of scan lines and
+// glowing points, cut through the real ground and walls, which then close up into the lit world.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { U, weekly } from './world.js';
+import { U, weekly, PAPER } from './world.js';
 
 const DEG = Math.PI / 180;
 
@@ -42,8 +43,10 @@ const DISPLAY_FS = `
   uniform sampler2D tPaper, tND, tDepth, tReal;
   uniform vec2 uRes; uniform float uPx, uNear, uFar, uDK;
   uniform float uNow, uGlow, uPour, uRealOn, uRealOnly;
-  uniform vec4 uRects[6]; uniform vec4 uRect0; uniform vec3 uPaper, uInk, uAccent;
+  uniform vec4 uRects[6]; uniform vec4 uRect0; uniform vec3 uPaper, uInk, uAccent, uLime, uDeep;
+  uniform mat4 uInvVP; uniform float uMpp, uFx, uTime;
   varying vec2 vUv;
+  float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
   vec4 R;
   vec2 cl(vec2 p){ return clamp(p, R.xy + .5, R.zw - .5); }
   float dAt(vec2 p){ return texture2D(tDepth, cl(p) / uRes).r; }
@@ -105,21 +108,47 @@ const DISPLAY_FS = `
       }
     }
     vec3 col = mix(base, uInk, clamp(e, 0., 0.92));
-    // fresh ink: what was drawn in the last weeks glows in warm CAD amber
+    // fresh ink: what was drawn in the last weeks glows green, then cools to ink
     float wk = e > .01 ? wl : week;
     if (uGlow > 0. && (e > .01 || base != uPaper)) {
       float g = 1. - clamp((uNow - wk) / .9, 0., 1.);
       if (wk <= uNow + .01) col = mix(col, uAccent, g * g * (e > .01 ? .92 : .32) * uGlow);
     }
-    // the site, poured in behind the same weeks, with a crisp amber CAD scan edge where it is arriving
+    // The world builds itself behind the same weeks, and the drawing stays readable while it does. The site appears
+    // as horizontal slices cut through the real ground and walls. They drift and breathe on their own, widen until
+    // they meet, and carry a lime edge while they grow. Between them the paper sinks into a green shade in which
+    // the ink glows; ahead of the front the ink turns green and points land on the paper.
     if (uRealOn > .5 && in0) {
       float w2 = bg ? .4 : wk;
-      float k = 1. - smoothstep(uPour - .42, uPour, w2);
+      float a = uPour - w2;
       vec3 real = texture2D(tReal, vUv).rgb;
-      float band = exp(-pow((uPour - .22 - w2) / .28, 2.));
-      col = mix(col, uAccent, e * band * .9 * (1. - k));
-      col = mix(col, real, k);
-      col = mix(col, col * vec3(1.06, .92, .82) + uAccent * .1, band * k * .85);
+      if (uFx < .5) col = mix(col, real, smoothstep(0., .42, a));
+      else {
+        float sp = max(.16, uMpp * 7.), f;
+        if (bg) f = p.y / 7. + .3 * sin(p.x * .013 + uPour * 2.4 + uTime * .8) + uTime * .25;
+        else {
+          vec4 w4 = uInvVP * vec4(vUv * 2. - 1., dc * 2. - 1., 1.); vec3 wp = w4.xyz / w4.w;
+          // level ground has no height to slice, so there the slices lean a little and still read as lines
+          float lev = 1. - smoothstep(.15, .6, (abs(dFdx(wp.y)) + abs(dFdy(wp.y))) / uMpp);
+          f = (wp.y + lev * (wp.x * .34 - wp.z * .26)) / sp + .24 * sin(wp.x * .9 + wp.z * .7 + uPour * 2.4 + uTime * .9)
+            + .1 * sin(wp.x * 3.1 - wp.z * 2.3 - uPour * 1.3 - uTime * .6) + uTime * .25;
+        }
+        float d = abs(fract(f) - .5) * 2.;                       // 0 on a slice, 1 half way to the next
+        float t = smoothstep(0., 1.8, a);                        // how far this pixel is through its build
+        float grow = t * 1.6 - d * .95;
+        float m = smoothstep(0., .18, grow);
+        float rim = (1. - smoothstep(0., .2, abs(grow - .05))) * (1. - t * t) * step(0., a);
+        float ahead = smoothstep(-.9, 0., a) * (1. - smoothstep(0., .3, a));
+        float veil = smoothstep(0., .25, a) * (1. - t) * (1. - m);
+        float tick = floor(uTime * 5. + uPour * 6.);
+        col = mix(col, uAccent, e * ahead * .75);
+        col = mix(col, mix(uAccent, uLime, .5), step(.986, h21(floor(p / 2.) + tick * 3.7)) * ahead);
+        col = mix(col, uDeep, veil * .36);
+        col = mix(col, uLime, e * veil * .55);
+        col = mix(col, mix(real, real * vec3(.93, 1.05, .86) + uLime * .05, (1. - t) * .75), m);
+        col = mix(col, uLime, rim * .82);
+        col = mix(col, vec3(.96, 1., .84), step(.993, h21(floor(p / 2.) + tick * 1.3 + 11.)) * (1. - t) * step(0., a) * .85);
+      }
     }
     gl_FragColor = vec4(col, 1.);
   }`;
@@ -149,7 +178,7 @@ export function makePipe(renderer, scene, cam, opt) {
       uniforms: {
         tDiffuse: { value: null }, tDepth: { value: null }, tShadow: { value: null },
         uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uShadowMat: { value: new THREE.Matrix4() },
-        uCamPos: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Color() }, uBoxMin: { value: new THREE.Vector3(4.0, -3.2, -7.7) }, uBoxMax: { value: new THREE.Vector3(18.3, 6.4, 3.7) },
+        uCamPos: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Color() }, uBoxMin: { value: new THREE.Vector3(4.0, -3.2, -7.7) }, uBoxMax: { value: new THREE.Vector3(20.4, 7.2, 3.7) },
         uDensity: { value: 0 }, uSunDir: { value: new THREE.Vector3() }, uDebug: { value: new URLSearchParams(location.search).has('shaftsdebug') ? 1 : 0 },
       },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
@@ -190,7 +219,8 @@ export function makePipe(renderer, scene, cam, opt) {
       uRes: { value: new THREE.Vector2() }, uPx: { value: 1 }, uNear: { value: 1 }, uFar: { value: 2 }, uDK: { value: 0.05 },
       uNow: { value: 0 }, uGlow: { value: 0 }, uPour: { value: -1 }, uRealOn: { value: 0 }, uRealOnly: { value: 0 },
       uRects: { value: Array.from({ length: 6 }, () => new THREE.Vector4(-1, -1, -1, -1)) }, uRect0: { value: new THREE.Vector4(-1, -1, -1, -1) },
-      uPaper: U.uPaper, uInk: U.uInk, uAccent: { value: new THREE.Vector3(0xe8 / 255, 0x5d / 255, 0x04 / 255) },
+      uPaper: U.uPaper, uInk: U.uInk, uAccent: U.uAccent, uLime: U.uLime, uDeep: U.uDeep,
+      uInvVP: { value: new THREE.Matrix4() }, uMpp: { value: 0.02 }, uFx: U.fx, uTime: { value: 0 },
     },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }',
     fragmentShader: DISPLAY_FS, depthTest: false, depthWrite: false,
@@ -224,7 +254,7 @@ export function makePipe(renderer, scene, cam, opt) {
   // the drawing: every tile is the same camera aimed into its own rectangle, at its own week
   P.draw = (tiles) => {
     const keep = renderer.autoClear; renderer.autoClear = false;
-    for (const rt of [P.paperRT, P.ndRT]) { rt.scissorTest = false; renderer.setRenderTarget(rt); renderer.setClearColor(0xf2efe7, 0); renderer.clear(); }
+    for (const rt of [P.paperRT, P.ndRT]) { rt.scissorTest = false; renderer.setRenderTarget(rt); renderer.setClearColor(PAPER, 0); renderer.clear(); }
     const R = P.mat.uniforms.uRects.value;
     tiles.forEach((t, i) => {
       if (!onScreen(t.rect) || t.hidden) { R[i].set(-1, -1, -1, -1); return; }
@@ -254,7 +284,8 @@ export function makePipe(renderer, scene, cam, opt) {
     dev(o.rect0, u.uRect0.value);
     u.uNow.value = o.now; u.uGlow.value = o.glow; u.uPour.value = o.pour; u.uRealOn.value = o.realOn ? 1 : 0; u.uRealOnly.value = o.realOnly ? 1 : 0;
     if (o.realOnly) u.uRects.value.forEach((r) => r.set(-1, -1, -1, -1));
+    if (o.realOn) { u.uInvVP.value.multiplyMatrices(cam.matrixWorld, cam.projectionMatrixInverse); u.uMpp.value = o.mpp || 0.02; u.uTime.value = (o.time || 0) % 1000; }
     renderer.setRenderTarget(null); renderer.render(P.quadScene, P.quadCam);
   };
-  return { ...P };
+  return P; // the same object the closures above read, so pipe.onAim set by the page is the one P.real calls
 }

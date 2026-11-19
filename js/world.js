@@ -12,6 +12,14 @@ const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t
 export const { WEEKS, PROG, TILES } = window.SEQ;
 const PHASE = { 1: [3, 6], 2: [6, 9], 3: [9, 11], 4: [11, 14.5], 5: [13.5, 16], 6: [16, 21], 7: [21, 25], 8: [25, 38] };
 export const BACKFILL = 9.5; // the pit is filled against the lower level walls
+export const BUILD = 0.36;   // weeks a new part spends as slices of itself before it is solid
+// The fit-out was first scheduled for two floors (weeks 30 to 37.6). With the pool level furnished too, the upper and
+// living levels are brought forward: FW maps a week of that first schedule to the week it happens now.
+export const FW = (w) => (w <= 30 ? w : w <= 33.6 ? 30 + (w - 30) * (2.4 / 3.6) : w <= 34 ? 32.4 + (w - 33.6) * 0.75 : w <= 37.58 ? 32.7 + (w - 34) * (3.1 / 3.58) : w);
+// the sliding door: the third of four panes in the living room glazing, and the aisle the camera walks in on
+export const DOOR = { x: 15.6, z0: -4.725, z1: -3.2375, zc: -3.98125, w: 1.4875, h: 2.85, y: 0 };
+// and its twin a floor below, from the pool level lounge out onto the terrace: the way the walk leaves the house
+export const DOOR0 = { x: 18.24, z0: -4.65, z1: -3.125, zc: -3.8875, w: 1.525, h: 2.85, y: -3.2 };
 
 // ---------------------------------------------------------------- random, noise
 let seed = 11;
@@ -188,6 +196,40 @@ export function makeTextures(renderer, phone) {
       g.fillRect(rnd() * s, rnd() * s, 3 + rnd() * 14, 1 + rnd() * 2);
     }
   });
+  // Travertine cladding: vein-cut panels 1.2 x 0.6 m in a half bond, the stone of the concept renders
+  T.clad = canvasTex(S, 2.4, (g, s) => {
+    const a = fbm(s, 5, 4), b = fbm(s, 40, 2);
+    ramp(g, s, (i) => {
+      const y = Math.floor(i / s) / s;
+      const vein = Math.sin(y * Math.PI * 44 + a[i] * 7.0) * 0.11;
+      return clamp(0.5 + (a[i] - 0.5) * 0.5 + (b[i] - 0.5) * 0.3 + vein, 0, 1);
+    }, [201, 187, 164], [220, 209, 189], [236, 228, 213], 6);
+    for (let i = 0; i < s * 0.9; i++) {
+      g.fillStyle = `rgba(128, 110, 86, ${0.10 + rnd() * 0.16})`;
+      g.fillRect(rnd() * s, rnd() * s, 4 + rnd() * 22, 1 + rnd() * 1.6);
+    }
+    const rows = 4, h = s / rows, w = s / 2;
+    for (let r = 0; r < rows; r++) {
+      for (let c = -1; c < 2; c++) {
+        const x = c * w + (r % 2) * w / 2;
+        g.fillStyle = `rgba(${rnd() < 0.5 ? '96,80,58' : '255,250,240'},${0.02 + rnd() * 0.05})`; g.fillRect(x, r * h, w, h);
+        g.fillStyle = 'rgba(70,58,42,0.40)'; g.fillRect(x, r * h, 1.6, h);
+      }
+      g.fillStyle = 'rgba(70,58,42,0.40)'; g.fillRect(0, r * h, s, 1.6);
+      g.fillStyle = 'rgba(255,250,240,0.16)'; g.fillRect(0, r * h + 1.6, s, 1);
+    }
+  });
+  T.cladBump = canvasTex(512, 2.4, (g, s) => {
+    const a = fbm(s, 8, 3);
+    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 0.4, 0, 1), [118, 118, 118], [136, 136, 136], [154, 154, 154], 8);
+    for (let i = 0; i < 260; i++) { g.fillStyle = 'rgba(60,60,60,0.4)'; g.fillRect(rnd() * s, rnd() * s, 3 + rnd() * 14, 1); }
+    const rows = 4, h = s / rows, w = s / 2;
+    g.fillStyle = '#2a2a2a';
+    for (let r = 0; r < rows; r++) {
+      g.fillRect(0, r * h, s, 1.6);
+      for (let c = -1; c < 2; c++) g.fillRect(c * w + (r % 2) * w / 2, r * h, 1.6, h);
+    }
+  }, true);
   // Architectural walnut veneer
   T.walnut = canvasTex(512, 1.6, (g, s) => {
     const a = fbm(s, 4, 3);
@@ -274,7 +316,8 @@ export function makeTextures(renderer, phone) {
 
 // ---------------------------------------------------------------- the land
 export function natural(x, z) {
-  let y = -3.2 * smooth(4.2, 18.5, x);        // the court at 0 down to the garden at -3.20
+  let y = -3.2 * smooth(4.2, 18.5, x);        // the court at 0 down to the pool terrace at -3.20
+  y += -1.5 * smooth(19.8, 25.5, x);           // the bank the pool stands on
   y += -2.5 * smooth(26, 46, x);               // on down to the olives
   y += -16 * smooth(46, 260, x);               // and the valley
   y += 22 * smooth(-30, -260, x);              // the hill behind the court
@@ -298,19 +341,25 @@ export function pitY(x, z) {
   const ramp = PIT.y + Math.max(0, x - PIT.x1) * 0.19 + Math.hypot(Math.max(PIT.x0 - x, 0), rz) * PIT.k + rz * (x > PIT.x1 ? PIT.k : 0);
   return Math.min(y, ramp);
 }
+// the scaffold stair: from the foot of the bank (x0) up to a landing (x1 to xl) at the edge of the balcony, on the door's axis
+export const STAIR = { z: DOOR.zc, half: 0.52, x0: 26.4, x1: 20.2, xl: 19.22, y0: natural(26.4, DOOR.zc) };
 const ruts = (x, z) => 0.03 * (noise2(x * 0.9, z * 0.9) - 0.5) + 0.018 * (noise2(x * 3.1, z * 3.1) - 0.5);
 
 // ---------------------------------------------------------------- drawing materials (the sheet)
-export const PAPER = new THREE.Color('#f2efe7');
-export const INK = new THREE.Color('#1d1c19');
-export const ACCENT = new THREE.Color('#e85d04');
+// The palette of the sheet: paper, a deep forest ink, a leaf green for fresh lines on paper and a lime for light on dark.
+export const PAL = { paper: '#f1f0e6', ink: '#10241a', leaf: '#5fa512', lime: '#c4f03e', deep: '#0b1a12', tint: '#e2ecc6' };
+export const PAPER = new THREE.Color(PAL.paper);
+export const INK = new THREE.Color(PAL.ink);
+export const ACCENT = new THREE.Color(PAL.leaf);
+const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return new THREE.Vector3((n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
 export const U = {
   uNow: { value: 99 }, uNewFrom: { value: 99 }, uTintOn: { value: 1 },
   uBlock: { value: new THREE.Vector4(-10, -20, 34, 14) },
-  uPaper: { value: new THREE.Vector3(0xf2 / 255, 0xef / 255, 0xe7 / 255) },
-  uInk: { value: new THREE.Vector3(0x1d / 255, 0x1c / 255, 0x19 / 255) },
-  uTint: { value: new THREE.Vector3(0xf0 / 255, 0xd8 / 255, 0xc4 / 255) },
-  real: { value: 6 },
+  uPaper: { value: rgb(PAL.paper) },
+  uInk: { value: rgb(PAL.ink) },
+  uTint: { value: rgb(PAL.tint) },
+  uAccent: { value: rgb(PAL.leaf) }, uLime: { value: rgb(PAL.lime) }, uDeep: { value: rgb(PAL.deep) },
+  real: { value: 6 }, fx: { value: 1 },
 };
 const DRAW_VS = `
   attribute float aWeek; attribute float aOut;
@@ -374,10 +423,29 @@ export const DM = {
 // ---------------------------------------------------------------- real materials
 let ENV = null;
 const std = (o) => new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.88, metalness: 0, envMap: ENV, envMapIntensity: 0.32 }, o));
+// Every real material knows its week. A part does not pop in: for its first BUILD weeks it is made of slices of
+// itself, thin at first with gaps you can see through, which widen until they meet. While it grows the part is
+// washed in lime and every slice carries a bright edge. U.fx at 0 (reduced motion) turns that off.
 const WEEKLY = (s) => {
-  s.uniforms.uNow = U.real;
-  s.vertexShader = s.vertexShader.replace('void main() {', 'uniform float uNow; attribute float aWeek; attribute float aOut; varying float vWk; varying float vOt;\nvoid main() {\n  vWk = aWeek; vOt = aOut;');
-  s.fragmentShader = s.fragmentShader.replace('void main() {', 'uniform float uNow; varying float vWk; varying float vOt;\nvoid main() {\n  if (vWk > uNow + 1e-4 || (vOt > .5 && uNow >= vOt)) discard;');
+  s.uniforms.uNow = U.real; s.uniforms.uFx = U.fx;
+  s.vertexShader = s.vertexShader.replace('void main() {', `uniform float uNow; attribute float aWeek; attribute float aOut; varying float vWk; varying float vOt; varying vec3 vBw;
+void main() {
+  vWk = aWeek; vOt = aOut; vBw = (modelMatrix * vec4(position, 1.)).xyz;`);
+  s.fragmentShader = s.fragmentShader.replace('void main() {', `uniform float uNow, uFx; varying float vWk; varying float vOt; varying vec3 vBw;
+void main() {
+  if (vWk > uNow + 1e-4 || (vOt > .5 && uNow >= vOt)) discard;
+  float bK = uFx > .5 ? clamp((uNow - vWk) / ${BUILD.toFixed(3)}, 0., 1.) : 1.;
+  float bE = 0.;
+  if (bK < 1.) {
+    float bF = vBw.y * 10.5 + (vBw.x - vBw.z) * 1.9 + .12 * sin(vBw.x * 2.3 + vBw.z * 1.9 + uNow * 7.) + uNow * 2.6;
+    float bL = abs(fract(bF) - .5) * 2.;
+    float bN = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(.06711056, .00583715)))); // a dither softens the edge of every slice
+    float bS = bK * bK * (3. - 2. * bK);
+    float bW = mix(.24, 1.16, bS * bS);              // the slices stay thin for most of the time, then close quickly
+    if (bL + (bN - .5) * .3 > bW) discard;
+    bE = smoothstep(bW - .4, bW, bL) * (1. - bS);
+  }`).replace('#include <dithering_fragment>', `#include <dithering_fragment>
+  if (bK < 1.) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(.6, .93, .16) * 1.35, (1. - bK) * .3 + bE * .62);`);
 };
 export function weekly(m) { m.onBeforeCompile = WEEKLY; m.customProgramCacheKey = () => 'weekly'; return m; }
 export const DEPTH_WEEKLY = weekly(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }));
@@ -390,7 +458,12 @@ export function makeMaterials(T, env) {
     oak: std({ map: T.oak, bumpMap: T.oakBump, bumpScale: 0.008, roughness: 0.42, envMapIntensity: 0.52 }),
     floorL: std({ map: T.travertine, roughness: 0.5 }),
     plaster: std({ color: 0xede8df, roughness: 0.92 }),
-    gravel: std({ color: 0x8f8a82, roughness: 0.98 }),
+    gravel: std({ color: 0xb3ab9c, roughness: 0.98 }),
+    clad: std({ map: T.clad, bumpMap: T.cladBump, bumpScale: 0.012, roughness: 0.74, envMapIntensity: 0.3 }),
+    soffit: std({ map: T.oak, color: 0xd6ad7c, bumpMap: T.oakBump, bumpScale: 0.006, roughness: 0.6, envMapIntensity: 0.3 }),
+    water: std({ color: 0x6fb3b4, roughness: 0.05, metalness: 0.15, envMapIntensity: 1.7 }),
+    cloth: std({ color: 0x2f6f3e, bumpMap: T.linenBump, bumpScale: 0.002, roughness: 0.96, envMapIntensity: 0.08 }),
+    lake: std({ color: 0x51788c, roughness: 0.22, metalness: 0.1, envMapIntensity: 1.1 }),
     pave: std({ map: T.pave, bumpMap: T.concBump, bumpScale: 0.01, roughness: 0.8 }),
     sofa: std({ map: T.linen, bumpMap: T.linenBump, bumpScale: 0.006, roughness: 0.9, envMapIntensity: 0.18 }),
     sofaDark: std({ color: 0xb7a892, bumpMap: T.linenBump, bumpScale: 0.005, roughness: 0.9 }),
@@ -478,10 +551,13 @@ export function addMesh(group, geo, sets, o = {}) {
 }
 
 // ---------------------------------------------------------------- the house as a list of parts
-// Levels: garden -3.20, entrance 0.00, study 3.20, roof 6.40. The house spans x 3.7 to 18.3, z -8 to 4.
+// Projekt Steininger: three storeys of travertine frames stepping down a slope, glazed to the east.
+// Levels: pool terrace -3.20, living 0.00, upper 3.20, roofs 6.80 and 7.60. The house runs x 3.7 (the court, uphill)
+// to 20.4 (the nose of the cantilever), in two bays across the slope: A to the south (z -1.6 to 4), B to the north (z -8 to -1.6).
+// Bay B carries the balcony at 0.00 and the tall box that hangs over it; a two storey hall with the stair sits at its back.
 function houseParts() {
   const P = [];
-  const box = (x0, y0, z0, x1, y1, z1, m, k = 'struct', ph = 2) => P.push({ b: [x0, y0, z0, x1, y1, z1], m, k, ph });
+  const box = (x0, y0, z0, x1, y1, z1, m, k = 'struct', ph = 2, wk = null) => P.push({ b: [x0, y0, z0, x1, y1, z1], m, k, ph, wk });
   const carve = (a0, a1, b0, b1, holes) => {
     const cuts = [...new Set([a0, a1, ...holes.flatMap((h) => [h[0], h[1]])].filter((v) => v >= a0 && v <= a1))].sort((p, q) => p - q);
     const out = [];
@@ -494,166 +570,218 @@ function houseParts() {
     }
     return out;
   };
+  // a wall in the plane x = t ('x') or z = t ('z'); a hole is [a0, a1, y0, y1] and is glazed unless its fifth entry is 'open'
   const wall = (axis, t0, t1, a0, a1, b0, b1, holes, m, ph) => {
     for (const [p0, p1, q0, q1] of carve(a0, a1, b0, b1, holes)) axis === 'x' ? box(t0, q0, p0, t1, q1, p1, m, 'struct', ph) : box(p0, q0, t0, p1, q1, t1, m, 'struct', ph);
     for (const h of holes) {
+      if (h[4] === 'open') continue;
       const tm = (t0 + t1) / 2, f = 0.04;
-      if (axis === 'x') {
-        if (h[3] - h[2] > 2.3 && h[2] <= b0 + 0.01) continue; // doors stay open
-        box(tm - 0.035, h[2], h[0], tm + 0.035, h[2] + f, h[1], 'steel', 'frame', 7); box(tm - 0.035, h[3] - f, h[0], tm + 0.035, h[3], h[1], 'steel', 'frame', 7);
-        box(tm - 0.035, h[2] + f, h[0], tm + 0.035, h[3] - f, h[0] + f, 'steel', 'frame', 7); box(tm - 0.035, h[2] + f, h[1] - f, tm + 0.035, h[3] - f, h[1], 'steel', 'frame', 7);
-        box(tm - 0.01, h[2] + f, h[0] + f, tm + 0.01, h[3] - f, h[1] - f, 'glass', 'glass', 7);
-      } else {
-        box(h[0], h[2], tm - 0.035, h[1], h[2] + f, tm + 0.035, 'steel', 'frame', 7); box(h[0], h[3] - f, tm - 0.035, h[1], h[3], tm + 0.035, 'steel', 'frame', 7);
-        box(h[0], h[2] + f, tm - 0.035, h[0] + f, h[3] - f, tm + 0.035, 'steel', 'frame', 7); box(h[1] - f, h[2] + f, tm - 0.035, h[1], h[3] - f, tm + 0.035, 'steel', 'frame', 7);
-        if (h[1] - h[0] > 3) { const m = (h[0] + h[1]) / 2; box(m - 0.02, h[2] + f, tm - 0.035, m + 0.02, h[3] - f, tm + 0.035, 'steel', 'frame', 7); }
-        box(h[0] + f, h[2] + f, tm - 0.01, h[1] - f, h[3] - f, tm + 0.01, 'glass', 'glass', 7);
-      }
+      const B = (ta, tb, aa, ab, ya, yb, mm, kk) => (axis === 'x' ? box(tm + ta, ya, aa, tm + tb, yb, ab, mm, kk, 7) : box(aa, ya, tm + ta, ab, yb, tm + tb, mm, kk, 7));
+      B(-0.035, 0.035, h[0], h[1], h[2], h[2] + f, 'steel', 'frame'); B(-0.035, 0.035, h[0], h[1], h[3] - f, h[3], 'steel', 'frame');
+      B(-0.035, 0.035, h[0], h[0] + f, h[2] + f, h[3] - f, 'steel', 'frame'); B(-0.035, 0.035, h[1] - f, h[1], h[2] + f, h[3] - f, 'steel', 'frame');
+      if (h[1] - h[0] > 3) { const c = (h[0] + h[1]) / 2; B(-0.035, 0.035, c - 0.02, c + 0.02, h[2] + f, h[3] - f, 'steel', 'frame'); }
+      B(-0.01, 0.01, h[0] + f, h[1] - f, h[2] + f, h[3] - f, 'glass', 'glass');
     }
   };
-  const SL = { all: 'conc', top: 'floorL', bot: 'plaster' }, SG = { all: 'conc', top: 'oak', bot: 'plaster' };
+  // slim floor to ceiling glazing in n panes; pane `door` is left to the sliding leaf that stage.js hangs in it
+  const glazing = (axis, t, a0, a1, y0, y1, n, door = -1) => {
+    const step = (a1 - a0) / n;
+    const B = (ta, tb, aa, ab, ya, yb, m, k) => (axis === 'x' ? box(t + ta, ya, aa, t + tb, yb, ab, m, k, 7) : box(aa, ya, t + ta, ab, yb, t + tb, m, k, 7));
+    for (let i = 0; i < n; i++) if (i !== door) B(-0.015, 0.015, a0 + i * step + 0.02, a0 + (i + 1) * step - 0.02, y0 + 0.04, y1 - 0.04, 'glass', 'glass');
+    for (let i = 0; i <= n; i++) { const a = a0 + i * step; B(-0.045, 0.045, Math.max(a0, a - 0.022), Math.min(a1, a + 0.022), y0, y1, 'steel', 'frame'); }
+    B(-0.045, 0.045, a0, a1, y0, y0 + 0.045, 'steel', 'frame'); B(-0.045, 0.045, a0, a1, y1 - 0.045, y1, 'steel', 'frame');
+  };
+  // frameless glass balustrade, as in the concept: a slim steel shoe, the pane, a fine polished cap
+  const rail = (axis, t, a0, a1, y, h = 1.05, wk = null) => {
+    const B = (ta, tb, ya, yb, m, k) => (axis === 'x' ? box(t + ta, ya, a0, t + tb, yb, a1, m, k, 7, wk) : box(a0, ya, t + ta, a1, yb, t + tb, m, k, 7, wk));
+    B(-0.025, 0.025, y, y + 0.05, 'steel', 'frame'); B(-0.01, 0.01, y + 0.05, y + h, 'glass', 'glass'); B(-0.013, 0.013, y + h, y + h + 0.012, 'galv', 'frame');
+  };
+
+  // what a face is made of: raw concrete first, then travertine outside, plaster and oak inside, timber under the overhangs
+  const SL = { all: 'conc', top: 'floorL', bot: 'plaster' };                // lower level slab
+  const SG = { all: 'conc', top: 'oak', bot: 'plaster' };                   // a floor inside
+  const SP = { all: 'clad', top: 'pave', bot: 'plaster' };                  // a deck over a room
+  const SO = { all: 'clad', top: 'pave', bot: 'soffit' };                   // a deck over open air
+  const SI = { all: 'conc', top: 'oak', bot: 'soffit' };                    // a floor inside, over open air
+  const WB = { all: 'clad', px: 'plaster' }, WN = { all: 'clad', pz: 'plaster' }, WS = { all: 'clad', nz: 'plaster' };
+
   // footings (non-overlapping corners)
   box(3.1, -4.3, -8.4, 4.6, -3.6, 4.4, 'conc', 'struct', 1);
   box(17.7, -4.3, -8.4, 18.9, -3.6, 4.4, 'conc', 'struct', 1);
   box(4.6, -4.3, -8.4, 17.7, -3.6, -7.4, 'conc', 'struct', 1);
   box(4.6, -4.3, 3.4, 17.7, -3.6, 4.4, 'conc', 'struct', 1);
-  // slabs (strictly bounded inside outer walls to prevent coplanar Z-fighting)
+
+  // ---- lower level, -3.20: the slab and the walls that hold the hill back
   box(4.0, -3.6, -7.7, 18.3, -3.2, 3.7, SL, 'struct', 2);
-  box(4.0, -0.35, -6.4, 18.3, 0, 3.7, SG, 'struct', 3);
-  box(4.0, -0.35, -7.7, 5.5, 0, -6.4, SG, 'struct', 3);
-  box(10.3, -0.35, -7.7, 18.3, 0, -6.4, SG, 'struct', 3);
-  box(18.3, -0.35, -8.0, 22.5, 0, 1.5, { all: 'conc', top: 'pave' }, 'struct', 3);
-  box(4.0, 2.85, -6.4, 11.0, 3.2, 3.7, SG, 'struct', 5);
-  box(4.0, 2.85, -7.7, 5.5, 3.2, -6.4, SG, 'struct', 5);
-  box(10.3, 2.85, -7.7, 11.0, 3.2, -6.4, SG, 'struct', 5);
-  // roof slabs and clerestory (non-overlapping segments)
-  const RF = { all: 'conc', top: 'gravel', bot: 'plaster' };
-  box(4.0, 6.4, -8.0, 8.3, 6.8, 4.0, RF, 'struct', 6);
-  box(8.3, 6.4, -8.0, 8.55, 8.0, 4.0, 'conc', 'struct', 6);
-  box(8.55, 7.6, -8.0, 12.25, 8.0, 4.0, RF, 'struct', 6);
-  box(8.55, 6.4, -8.0, 12.0, 7.6, -7.7, 'conc', 'struct', 6);
-  box(8.55, 6.4, 3.7, 12.0, 7.6, 4.0, 'conc', 'struct', 6);
-  box(12.0, 6.4, -8.0, 19.6, 6.8, 4.0, RF, 'struct', 6);
-  // walls
-  wall('x', 3.7, 4.0, -8.0, 4.0, -3.6, 0, [], 'conc', 2);
-  wall('x', 3.7, 4.0, -8.0, 4.0, 0, 6.8, [[-1.2, 1.2, 0, 2.4], [-5.6, -2.4, 4.3, 5.9]], 'conc', 4);
-  wall('z', -8.0, -7.7, 4.0, 18.3, -3.6, -0.35, [[13.0, 17.2, -2.3, -0.9]], 'conc', 2);
-  wall('z', -8.0, -7.7, 4.0, 18.3, -0.35, 6.4, [[12.6, 17.4, 0.9, 5.6], [4.6, 10.8, 4.9, 5.8]], 'conc', 4);
-  wall('z', 3.7, 4.0, 4.0, 18.3, -3.6, -0.35, [[13.0, 17.2, -2.3, -0.9]], 'conc', 2);
-  wall('z', 3.7, 4.0, 4.0, 18.3, -0.35, 6.4, [[12.6, 17.4, 0.9, 5.6], [5.0, 9.4, 0.9, 2.2]], 'conc', 4);
-  wall('x', 11.0, 11.15, -7.7, 3.7, -3.2, -0.35, [[-2.4, -1.4, -3.2, -1.1]], 'plaster', 4);
+  wall('x', 3.7, 4.0, -8.0, 4.0, -3.6, 0, [], { all: 'conc', px: 'plaster' }, 2);
+  wall('z', -8.0, -7.7, 4.0, 18.3, -3.6, -0.35, [], WN, 2);
+  wall('z', 3.7, 4.0, 4.0, 18.0, -3.6, -0.35, [], WS, 2);
 
-  // Slim architectural glazing frames (thinner sightlines)
-  const glassRun = (x, y0, y1, z0, z1, step, door = null) => {
-    for (let z = z0; z < z1 - 1e-3; z += step) {
-      const za = z, zb = Math.min(z1, z + step);
-      if (door && za > door[0] - 1e-3 && zb < door[1] + 1e-3) {
-        box(x - 0.015, door[2], za + 0.02, x + 0.015, y1 - 0.04, zb - 0.02, 'glass', 'glass', 7);
-        box(x - 0.045, door[2] - 0.045, za, x + 0.045, door[2], zb, 'steel', 'frame', 7);
-      } else {
-        box(x - 0.015, y0 + 0.04, za + 0.02, x + 0.015, y1 - 0.04, zb - 0.02, 'glass', 'glass', 7);
-      }
-    }
-    for (let z = z0; z <= z1 + 1e-3; z += step) {
-      box(x - 0.045, y0, Math.max(z0, z - 0.022), x + 0.045, y1, Math.min(z1, z + 0.022), 'steel', 'frame', 7);
-    }
-    box(x - 0.045, y0, z0, x + 0.045, y0 + 0.045, z1, 'steel', 'frame', 7);
-    box(x - 0.045, y1 - 0.045, z0, x + 0.045, y1, z1, 'steel', 'frame', 7);
-  };
-  glassRun(18.24, -3.2, -0.35, -7.7, 3.7, 1.9);
-  glassRun(18.24, 0, 6.4, -7.7, 3.7, 1.9, [-3.9, -2.0, 2.7]);
-  box(18.19, 3.13, -7.7, 18.29, 3.2, 3.7, 'steel', 'frame', 7);
-  glassRun(12.0, 6.8, 7.6, -7.7, 3.7, 1.9);
+  // ---- living level, 0.00: the slab leaves a slot for the lower flight and runs out as the balcony over bay B
+  box(4.0, -0.35, -7.7, 5.22, 0, -6.55, SG, 'struct', 3);
+  box(4.0, -0.35, -1.75, 5.22, 0, 3.7, SG, 'struct', 3);
+  box(5.22, -0.35, -7.7, 15.6, 0, 3.7, SG, 'struct', 3);
+  box(15.6, -0.35, -1.6, 17.5, 0, 3.7, SG, 'struct', 3);
+  box(17.5, -0.35, -1.6, 18.0, 0, 3.7, SP, 'struct', 3);
+  box(15.6, -0.35, -7.7, 18.3, 0, -1.6, SP, 'struct', 3);
+  box(18.3, -0.35, -8.0, 19.2, 0, -1.6, SO, 'struct', 3);
+  // walls of the living level
+  wall('x', 3.7, 4.0, -8.0, 4.0, 0, 3.2, [[0.6, 1.9, 0, 2.4, 'open'], [-7.3, -6.75, 0.3, 2.7]], WB, 4);
+  wall('z', -8.0, -7.7, 4.0, 18.3, -0.35, 3.2, [], WN, 4);
+  wall('z', 3.7, 4.0, 4.0, 18.0, -0.35, 3.2, [[12.4, 16.4, 0, 2.6]], WS, 4);
+  wall('z', -1.75, -1.45, 15.6, 18.0, 0, 2.85, [], 'clad', 4);
 
-  // Glass balustrades with recessed steel base shoe channels and top rails
-  // Terrace front & side balustrade
-  box(22.40, 0, -8.0, 22.48, 0.07, 1.5, 'steel', 'frame', 7);
-  box(22.42, 0.07, -7.98, 22.46, 1.05, 1.48, 'glass', 'glass', 7);
-  box(22.39, 1.05, -8.0, 22.49, 1.09, 1.5, 'steel', 'frame', 7);
-  // Mezzanine balustrade
-  box(10.94, 3.2, -6.4, 11.02, 3.27, 3.7, 'steel', 'frame', 7);
-  box(10.96, 3.27, -6.38, 11.0, 4.25, 3.68, 'glass', 'glass', 7);
-  box(10.93, 4.25, -6.4, 11.03, 4.29, 3.7, 'steel', 'frame', 7);
-  // Stair void balustrade (ground floor & second floor)
-  box(5.5, 0, -6.44, 10.3, 0.07, -6.36, 'steel', 'frame', 7);
-  box(5.5, 0.07, -6.42, 10.3, 1.0, -6.38, 'glass', 'glass', 7);
-  box(5.5, 1.0, -6.44, 10.3, 1.04, -6.36, 'steel', 'frame', 7);
-  box(5.5, 3.2, -6.44, 10.3, 3.27, -6.36, 'steel', 'frame', 7);
-  box(5.5, 3.27, -6.42, 10.3, 4.25, -6.38, 'glass', 'glass', 7);
-  box(5.5, 4.25, -6.44, 10.3, 4.29, -6.36, 'steel', 'frame', 7);
+  // ---- upper level, 3.20: open over the hall (x 4 to 7 in bay B), out over the balcony as the floor of the cantilever
+  box(4.0, 2.85, -1.75, 16.2, 3.2, 3.7, SG, 'struct', 5);
+  box(16.2, 2.85, -1.75, 18.0, 3.2, 3.7, SP, 'struct', 5);
+  box(7.0, 2.85, -7.7, 15.6, 3.2, -1.75, SG, 'struct', 5);
+  box(15.6, 2.85, -7.7, 17.4, 3.2, -1.75, SI, 'struct', 5);
+  box(17.4, 2.85, -7.7, 18.3, 3.2, -1.75, SO, 'struct', 5);
+  box(18.3, 2.85, -8.0, 20.4, 3.2, -1.45, SO, 'struct', 5);
+  // walls of the upper level: bay B is the taller box
+  wall('x', 3.7, 4.0, -8.0, -1.45, 3.2, 7.6, [[-4.75, -4.2, 3.6, 6.3]], WB, 5.5);
+  wall('x', 3.7, 4.0, -1.45, 4.0, 3.2, 6.8, [[2.25, 2.8, 3.5, 5.9]], WB, 5.5);
+  wall('z', -8.0, -7.7, 4.0, 17.4, 3.2, 7.2, [], WN, 5.5);
+  wall('z', -8.0, -7.7, 17.4, 20.4, 3.2, 7.2, [], 'clad', 5.5);
+  wall('z', 3.7, 4.0, 4.0, 16.6, 3.2, 6.4, [[9.0, 14.0, 4.0, 5.9]], WS, 5.5);
+  wall('z', -1.75, -1.45, 4.0, 20.4, 3.2, 7.2, [[4.0, 15.4, 3.2, 5.9, 'open']], 'clad', 5.5);
+  // the stone canopy over the door to the court
+  box(2.75, 2.5, 0.3, 3.7, 2.68, 2.2, 'clad', 'struct', 5.5);
 
-  // Stairs with clean oak treads and concrete carriage
-  const n = 18, run = 4.8 / n, rise = 3.2 / n;
+  // ---- roofs
+  const RF = { all: 'clad', top: 'gravel', bot: 'plaster' };
+  box(4.0, 6.4, -1.45, 16.6, 6.8, 4.0, RF, 'struct', 6);
+  box(4.0, 7.2, -8.0, 17.4, 7.6, -1.45, RF, 'struct', 6);
+  box(17.4, 7.2, -8.0, 20.4, 7.6, -1.45, { all: 'clad', top: 'gravel', bot: 'soffit' }, 'struct', 6);
+  // deep edge beams close the frames of the two upper boxes
+  box(16.1, 6.05, -1.45, 16.6, 6.4, 3.7, 'clad', 'struct', 6);
+  box(20.1, 6.8, -7.7, 20.4, 7.2, -1.75, 'clad', 'struct', 6);
+
+  // ---- glazing: dark slim frames, floor to ceiling
+  glazing('x', DOOR0.x, -7.7, -1.6, -3.2, -0.35, 4, 2);
+  glazing('x', 16.6, -1.6, 3.7, -3.2, -0.35, 4);
+  glazing('z', -1.6, 16.6, 18.24, -3.2, -0.35, 1);
+  glazing('x', DOOR.x, -7.7, -1.75, 0, 2.85, 4, 2);
+  glazing('x', 17.5, -1.45, 3.7, 0, 2.85, 4);
+  glazing('x', 16.2, -1.45, 3.7, 3.2, 6.05, 4);
+  glazing('x', 17.4, -7.7, -1.75, 3.2, 7.2, 4);
+  box(17.355, 5.9, -7.7, 17.445, 5.96, -1.75, 'steel', 'frame', 7);
+
+  // ---- glass balustrades
+  rail('x', 19.14, -8.0, DOOR.zc - 0.78, 0); rail('x', 19.14, DOOR.zc + 0.78, -1.6, 0);              // balcony, either side of the scaffold stair
+  rail('x', 19.14, DOOR.zc - 0.78, DOOR.zc + 0.78, 0, 1.05, 30.1);                                    // its last pane, once the stair is struck
+  rail('z', -7.96, 18.3, 19.1, 0); rail('z', -1.64, 18.0, 19.1, 0);
+  rail('x', 20.33, -7.7, -1.75, 3.2);                                                                 // loggia of the cantilever
+  rail('x', 17.94, -1.45, 3.96, 3.2); rail('z', 3.94, 16.6, 17.9, 3.2);                               // terrace on the roof of bay A's lower box
+  rail('x', 7.05, -7.7, -1.75, 3.2); rail('z', -1.70, 5.24, 7.05, 3.2);                               // gallery over the hall
+  rail('x', 5.26, -6.55, -1.75, 0, 1.0);                                                              // slot of the lower flight
+
+  // ---- stairs: two straight flights stacked along the back wall of the hall, oak treads on a concrete carriage
+  const n = 18, zs = -6.55, run = 4.8 / n, rise = 3.2 / n;
   for (let i = 0; i < n; i++) {
-    const t = (i + 1) * rise;
-    box(10.3 - (i + 1) * run, Math.max(0, t - 0.42), -7.68, 10.3 - i * run, t, -6.48, { all: 'conc', top: 'oak' }, 'stair', 5);
-    box(5.5 + i * run, Math.max(-3.2, -3.2 + t - 0.42), -7.68, 5.5 + (i + 1) * run, -3.2 + t, -6.48, { all: 'conc', top: 'oak' }, 'stair', 5);
+    const t = (i + 1) * rise, z0 = zs + i * run, z1 = z0 + run;
+    box(4.02, Math.max(0, t - 0.42), z0, 5.2, t, z1, { all: 'conc', top: 'oak' }, 'stair', 5);
+    box(4.02, Math.max(-3.2, -3.2 + t - 0.42), z0, 5.2, -3.2 + t, z1, { all: 'conc', top: 'oak' }, 'stair', 5);
   }
 
-  // Architectural Built-in Joinery: Second-Floor Library (Wk 30.1-30.8) & First-Floor Kitchen (Wk 34.0-34.65)
+  // ---- built-in joinery, each piece with the week it is fitted
   const F = (x0, y0, z0, x1, y1, z1, m, drawIt = true, wk = null) => P.push({ b: [x0, y0, z0, x1, y1, z1], m, k: drawIt ? 'furn' : 'furnReal', ph: 8, wk });
+  // the timber door to the court
+  F(3.8, 0, 0.6, 3.9, 2.4, 1.9, 'teak', true, 24.6);
+  F(3.9, 0.95, 1.72, 3.93, 1.35, 1.75, 'brass', false, 24.7);
 
-  // 1. Second-Floor (Mezzanine) Full-Height Walnut & Travertine Library Wall (x = 4.0..4.52, z = -2.2..3.3)
-  F(4.0, 3.20, -2.2, 4.48, 3.26, 3.3, 'ink', false, 30.05); // recessed shadow plinth
-  F(4.0, 3.26, -2.2, 4.50, 3.92, 3.3, 'walnut', true, 30.12); // lower credenza cabinets
-  F(4.0, 3.92, -2.2, 4.53, 3.97, 3.3, 'travertine', true, 30.25); // honed travertine display ledge
-  F(4.0, 3.97, -2.2, 4.05, 5.86, 3.3, 'walnut', true, 30.35); // thin walnut back panel
-  F(4.0, 5.82, -2.2, 4.42, 5.86, 3.3, 'walnut', true, 30.40); // top cornice cap
-  for (let zv = -2.18; zv <= 3.28; zv += 1.08) {
-    F(4.05, 3.97, zv, 4.42, 5.82, zv + 0.032, 'walnut', true, 30.45); // vertical bay dividers
-  }
+  // 1. Upper level: walnut and travertine library on the north wall of the studio (x 8.0 to 13.5, 0.53 deep), weeks 30.05 to 30.8
+  const LX = 8.0, LZ = -7.7;
+  const FL = (d0, y0, u0, d1, y1, u1, m, drawIt, wk) => F(LX + u0, y0, LZ + d0, LX + u1, y1, LZ + d1, m, drawIt, FW(wk));
+  FL(0, 3.20, 0, 0.48, 3.26, 5.5, 'ink', false, 30.05);       // recessed shadow plinth
+  FL(0, 3.26, 0, 0.50, 3.92, 5.5, 'walnut', true, 30.12);     // lower credenza cabinets
+  FL(0, 3.92, 0, 0.53, 3.97, 5.5, 'travertine', true, 30.25); // honed travertine display ledge
+  FL(0, 3.97, 0, 0.05, 5.86, 5.5, 'walnut', true, 30.35);     // thin walnut back panel
+  FL(0, 5.82, 0, 0.42, 5.86, 5.5, 'walnut', true, 30.40);     // top cornice cap
+  for (let u = 0.02; u <= 5.48; u += 1.08) FL(0.05, 3.97, u, 0.42, 5.82, u + 0.032, 'walnut', true, 30.45); // vertical bay dividers
   for (let s = 0; s < 4; s++) {
     const y = 3.97 + s * 0.45;
-    if (s > 0) F(4.05, y, -2.2, 4.41, y + 0.03, 3.3, 'walnut', true, 30.50 + s * 0.04);
-    let z = -2.08;
-    while (z < 3.12) {
-      if (Math.abs(((z + 2.18) % 1.08)) < 0.06) { z += 0.08; continue; }
+    if (s > 0) FL(0.05, y, 0, 0.41, y + 0.03, 5.5, 'walnut', true, 30.50 + s * 0.04);
+    let u = 0.12;
+    while (u < 5.32) {
+      if (Math.abs((u - 0.02) % 1.08) < 0.06) { u += 0.08; continue; }
       const w = 0.035 + rnd() * 0.055, h = 0.20 + rnd() * 0.14;
-      if (rnd() < 0.78) F(4.08, y + 0.03, z, 4.36, y + 0.03 + h, z + w, 'book' + Math.floor(rnd() * 5), false, 30.66 + s * 0.03);
-      z += w + 0.012 + (rnd() < 0.22 ? 0.16 : 0);
+      if (rnd() < 0.78) FL(0.08, y + 0.03, u, 0.36, y + 0.03 + h, u + w, 'book' + Math.floor(rnd() * 5), false, 30.66 + s * 0.03);
+      u += w + 0.012 + (rnd() < 0.22 ? 0.16 : 0);
     }
   }
+  // the bed in the cantilever, looking out through the loggia (week 31.6)
+  F(14.0, 3.2, -7.7, 16.7, 4.25, -7.62, 'walnut', true, FW(31.60));
+  F(14.25, 3.2, -7.62, 16.45, 3.46, -5.45, 'walnut', true, FW(31.63));
+  F(14.3, 3.46, -7.6, 16.4, 3.68, -5.5, 'linen', true, FW(31.66));
+  F(14.45, 3.68, -7.56, 15.25, 3.82, -7.12, 'linen', false, FW(31.69));
+  F(15.45, 3.68, -7.56, 16.25, 3.82, -7.12, 'linen', false, FW(31.69));
+  F(14.3, 3.68, -6.3, 16.4, 3.72, -5.5, 'sofaDark', false, FW(31.71));
 
-  // 2. First-Floor Kitchen Tall Walnut Run along back wall x = 4.0..4.68, z = -6.1..-1.8 (Weeks 34.0-34.4)
-  F(4.0, 0, -6.1, 4.62, 0.08, -1.8, 'ink', false, 34.00); // recessed plinth
-  F(4.0, 0.08, -6.1, 4.66, 2.68, -4.85, 'walnut', true, 34.05); // tall fridge & pantry column
-  F(4.66, 0.75, -4.92, 4.69, 1.85, -4.89, 'brass', false, 34.12); // vertical brass pull
-  // Integrated oven tower
-  F(4.0, 0.08, -4.84, 4.66, 0.88, -3.95, 'walnut', true, 34.14);
-  F(4.0, 0.88, -4.84, 4.67, 1.52, -3.95, 'ink', true, 34.18); // matte black oven + steam oven
-  F(4.67, 0.94, -4.78, 4.69, 1.46, -4.01, 'cabGlass', false, 34.20); // oven glass door
-  F(4.0, 1.52, -4.84, 4.66, 2.68, -3.95, 'walnut', true, 34.22);
-  // Worktop niche with travertine counter, travertine splashback, upper walnut cupboards & open shelf
-  F(4.0, 0.08, -3.94, 4.66, 0.88, -1.8, 'walnut', true, 34.26); // lower cabinets
-  F(4.0, 0.88, -3.94, 4.69, 0.93, -1.8, 'travertine', true, 34.30); // travertine worktop
-  F(4.0, 0.93, -3.94, 4.06, 1.68, -1.8, 'travertine', false, 34.34); // travertine splashback
-  F(4.06, 1.38, -3.85, 4.34, 1.41, -1.9, 'walnut', false, 34.38); // open walnut spice/ceramic shelf
-  F(4.0, 1.68, -3.94, 4.46, 2.68, -1.8, 'walnut', true, 34.40); // upper wall cabinets
-  F(4.0, 2.68, -6.1, 4.68, 2.85, -1.8, 'plaster', false, 34.42); // shadow-gap bulkhead to mezzanine soffit
+  // 2. Living level: tall walnut kitchen run on the south wall (x 7.0 to 11.3, 0.68 deep), weeks 34.0 to 34.4
+  const KX = 7.0, KZ = 3.7;
+  const FK = (d0, y0, u0, d1, y1, u1, m, drawIt, wk) => F(KX + u0, y0, KZ - d1, KX + u1, y1, KZ - d0, m, drawIt, FW(wk));
+  FK(0, 0, 0, 0.62, 0.08, 4.3, 'ink', false, 34.00);            // recessed plinth
+  FK(0, 0.08, 0, 0.66, 2.68, 1.25, 'walnut', true, 34.05);      // tall fridge and pantry column
+  FK(0.66, 0.75, 1.18, 0.69, 1.85, 1.21, 'brass', false, 34.12); // vertical brass pull
+  FK(0, 0.08, 1.26, 0.66, 0.88, 2.15, 'walnut', true, 34.14);   // oven tower
+  FK(0, 0.88, 1.26, 0.67, 1.52, 2.15, 'ink', true, 34.18);      // matte black oven and steam oven
+  FK(0.67, 0.94, 1.32, 0.69, 1.46, 2.09, 'cabGlass', false, 34.20);
+  FK(0, 1.52, 1.26, 0.66, 2.68, 2.15, 'walnut', true, 34.22);
+  FK(0, 0.08, 2.16, 0.66, 0.88, 4.3, 'walnut', true, 34.26);    // lower cabinets
+  FK(0, 0.88, 2.16, 0.69, 0.93, 4.3, 'travertine', true, 34.30); // travertine worktop
+  FK(0, 0.93, 2.16, 0.06, 1.68, 4.3, 'travertine', false, 34.34); // travertine splashback
+  FK(0.06, 1.38, 2.25, 0.34, 1.41, 4.2, 'walnut', false, 34.38); // open walnut shelf
+  FK(0, 1.68, 2.16, 0.46, 2.68, 4.3, 'walnut', true, 34.40);    // upper wall cabinets
+  FK(0, 2.68, 0, 0.68, 2.85, 4.3, 'plaster', false, 34.42);     // shadow-gap bulkhead to the soffit
 
-  // 3. First-Floor Waterfall Travertine Kitchen Island (x = 6.14..9.46, z = -4.68..-3.62, Weeks 34.45-34.65)
-  F(6.22, 0, -4.58, 9.38, 0.08, -3.72, 'ink', false, 34.44); // island recessed plinth
-  F(6.2, 0.08, -4.62, 9.4, 0.88, -3.7, 'walnut', true, 34.48); // fluted walnut island core
-  F(6.14, 0, -4.68, 6.2, 0.94, -3.62, 'travertine', true, 34.52); // left waterfall leg
-  F(9.4, 0, -4.68, 9.46, 0.94, -3.62, 'travertine', true, 34.54); // right waterfall leg
-  F(6.14, 0.88, -4.68, 9.46, 0.94, -3.62, 'travertine', true, 34.58); // thick honed travertine island top with bar overhang
-  F(7.4, 0.94, -4.35, 8.1, 0.95, -3.95, 'ink', false, 34.62); // induction hob
+  // 3. Waterfall travertine island in front of it (x 7.5 to 10.82, z 0.95 to 2.01), weeks 34.45 to 34.65
+  const IX = 7.5 - 6.14, IZ = 0.95 + 4.68;
+  const FI = (x0, y0, z0, x1, y1, z1, m, drawIt, wk) => F(x0 + IX, y0, z0 + IZ, x1 + IX, y1, z1 + IZ, m, drawIt, FW(wk));
+  FI(6.22, 0, -4.58, 9.38, 0.08, -3.72, 'ink', false, 34.44);        // recessed plinth
+  FI(6.2, 0.08, -4.62, 9.4, 0.88, -3.7, 'walnut', true, 34.48);      // fluted walnut core
+  FI(6.14, 0, -4.68, 6.2, 0.94, -3.62, 'travertine', true, 34.52);   // left waterfall leg
+  FI(9.4, 0, -4.68, 9.46, 0.94, -3.62, 'travertine', true, 34.54);   // right waterfall leg
+  FI(6.14, 0.88, -4.68, 9.46, 0.94, -3.62, 'travertine', true, 34.58); // thick honed top with bar overhang
+  FI(7.4, 0.94, -4.05, 8.1, 0.95, -3.75, 'ink', false, 34.62);       // induction hob
 
-  // 4. Lower level bedroom & snug joinery
-  F(13.2, -3.2, -7.7, 15.8, -2.1, -7.6, 'walnut', true, 30.2);
-  F(13.4, -3.2, -7.6, 15.6, -2.8, -5.5, 'walnut', true, 30.4);
-  F(13.45, -2.8, -7.3, 15.55, -2.66, -5.45, 'linen', true, 30.6);
-  F(13.6, -2.8, -7.55, 14.4, -2.6, -7.1, 'linen', false, 30.7);
-  F(14.6, -2.8, -7.55, 15.4, -2.6, -7.1, 'linen', false, 30.7);
-  F(12.7, -3.2, -7.7, 13.2, -2.75, -7.25, 'walnut', false, 30.8);
-  F(15.8, -3.2, -7.7, 16.3, -2.75, -7.25, 'walnut', false, 30.8);
-  F(6.6, -3.2, -5.2, 8.4, -2.65, -4.4, 'travertine', false, 30.9);
-  F(4.0, -2.6, -3.6, 4.6, -2.3, -2.0, 'walnut', false, 31.0);
-  F(4.0, -2.1, -3.5, 4.03, -1.0, -2.1, 'mirror', false, 31.1);
+  // 4. Pool level (-3.20), the third floor of the walk and the last to be furnished (weeks 36.2 to 37.3)
+  const Y0 = -3.2;
+  // the media wall of the lounge, on the north wall: walnut panelling and the screen
+  F(11.2, Y0, -7.7, 16.4, Y0 + 2.62, -7.62, 'walnut', true, 36.18);
+  F(12.55, Y0 + 1.0, -7.62, 15.05, Y0 + 2.36, -7.575, 'ink', true, 36.32);
+  // the sauna in the south-west corner: a timber box with a glass front, two benches and the stove inside
+  const SA = [4.04, 1.05, 7.3, 3.66], SH = Y0 + 2.25;
+  F(SA[0], Y0, SA[1], SA[2], Y0 + 0.06, SA[3], 'soffit', false, 36.80);
+  F(SA[0], Y0 + 0.06, SA[1], SA[0] + 0.07, SH, SA[3], 'soffit', true, 36.84);
+  F(SA[0], Y0 + 0.06, SA[3] - 0.07, SA[2], SH, SA[3], 'soffit', true, 36.86);
+  F(SA[0], Y0 + 0.06, SA[1], SA[2] - 1.0, SH, SA[1] + 0.07, 'soffit', true, 36.88);
+  F(SA[0], SH - 0.07, SA[1], SA[2], SH, SA[3], 'soffit', true, 36.92);
+  F(SA[2] - 0.07, Y0 + 0.06, SA[1], SA[2], SH - 0.07, SA[1] + 0.07, 'ink', true, 36.94);          // corner post of the glass
+  F(SA[2] - 1.0, Y0 + 0.06, SA[1] + 0.02, SA[2] - 0.07, SH - 0.07, SA[1] + 0.045, 'cabGlass', false, 36.97); // glass door to the room
+  F(SA[2] - 0.05, Y0 + 0.06, SA[1] + 0.07, SA[2] - 0.025, SH - 0.07, SA[3] - 0.07, 'cabGlass', false, 36.98); // glass front to the pool
+  F(SA[0] + 0.07, Y0 + 0.44, SA[3] - 0.72, SA[2] - 0.6, Y0 + 0.5, SA[3] - 0.07, 'soffit', false, 37.00);
+  F(SA[0] + 0.07, Y0 + 0.9, SA[3] - 0.46, SA[2] - 0.6, Y0 + 0.96, SA[3] - 0.07, 'soffit', false, 37.02);
+  F(SA[0] + 0.2, Y0 + 0.06, SA[1] + 0.22, SA[0] + 0.72, Y0 + 0.72, SA[1] + 0.74, 'ink', false, 37.03);
+  F(SA[0] + 0.24, Y0 + 0.72, SA[1] + 0.26, SA[0] + 0.68, Y0 + 0.8, SA[1] + 0.7, 'travertine', false, 37.04);
+  // the billiard table in bay A: walnut body on four legs, a green cloth inside the rails
+  const BX = 12.4, BZ = 1.05, BH = Y0 + 0.8;
+  for (const sx of [-1.2, 1.2]) for (const sz of [-0.58, 0.58]) F(BX + sx - 0.08, Y0, BZ + sz - 0.08, BX + sx + 0.08, Y0 + 0.6, BZ + sz + 0.08, 'walnut', false, 37.08);
+  F(BX - 1.42, Y0 + 0.6, BZ - 0.785, BX + 1.42, BH, BZ + 0.785, 'walnut', true, 37.12);
+  F(BX - 1.42, BH, BZ - 0.785, BX + 1.42, BH + 0.05, BZ - 0.635, 'walnut', false, 37.16);
+  F(BX - 1.42, BH, BZ + 0.635, BX + 1.42, BH + 0.05, BZ + 0.785, 'walnut', false, 37.16);
+  F(BX - 1.42, BH, BZ - 0.635, BX - 1.27, BH + 0.05, BZ + 0.635, 'walnut', false, 37.16);
+  F(BX + 1.27, BH, BZ - 0.635, BX + 1.42, BH + 0.05, BZ + 0.635, 'walnut', false, 37.16);
+  F(BX - 1.27, BH, BZ - 0.635, BX + 1.27, BH + 0.012, BZ + 0.635, 'cloth', false, 37.20);
 
-  // Exterior stone paving slabs (8cm thick so terrain never clips through)
+  // ---- outside: the court, the pool terrace on its plinth, and the pool standing on the bank
   box(-7, -0.05, -6.5, 3.7, 0.03, 3.5, 'pave', 'land', 8);
-  box(18.3, -3.25, -7.7, 24.8, -3.16, 3.7, 'pave', 'land', 8);
+  box(18.3, -4.5, -8.0, 21.3, -3.16, 4.0, { all: 'clad', top: 'pave' }, 'land', 8, 32.0);
+  box(21.3, -4.7, -8.0, 21.9, -3.34, 4.0, { all: 'clad', top: 'pave' }, 'land', 8, 32.3);     // the long step down to the water
+  box(21.9, -5.4, -8.0, 28.5, -3.34, -7.6, { all: 'clad', top: 'pave' }, 'land', 8, 32.6);    // pool walls
+  box(21.9, -5.4, 3.6, 28.5, -3.34, 4.0, { all: 'clad', top: 'pave' }, 'land', 8, 32.6);
+  box(28.2, -6.0, -7.6, 28.5, -3.47, 3.6, 'clad', 'land', 8, 33.4);                          // the infinity edge
+  box(21.9, -5.0, -7.6, 28.2, -3.45, 3.6, 'water', 'land', 8, 34.6);                         // the water
   return P;
 }
 
@@ -667,11 +795,15 @@ function partWeeks(p) {
     return (x, y) => w0 + (w1 - w0) * clamp((y - lo) / (hi - lo), 0, 1);
   }
   if (p.k === 'land') {
-    const w0 = 32.0 + 1.8 * u, w1 = w0 + 0.8, lo = p.b[ax], hi = Math.max(lo + 1e-6, p.b[ax + 3]);
+    const w0 = p.wk ?? (32.0 + 1.8 * u), w1 = w0 + 0.8, lo = p.b[ax], hi = Math.max(lo + 1e-6, p.b[ax + 3]);
     return (x, y, z) => w0 + (w1 - w0) * clamp(([x, y, z][ax] - lo) / (hi - lo), 0, 1);
   }
   if (p.k === 'stair') {
     return (x, y) => 13.85 + 1.95 * clamp((y - (-3.6)) / 6.8, 0, 1);
+  }
+  if (p.wk != null) { // a part that has to wait for something else on site carries its own week
+    const lo = p.b[1], hi = Math.max(lo + 1e-6, p.b[4]);
+    return (x, y) => p.wk + 0.12 * clamp((y - lo) / (hi - lo), 0, 1);
   }
   // Unified world-space affine wavefronts per structural phase so carved wall segments, slabs, and footings
   // share the exact same week value across every seam and build in one continuous, unbroken motion.
@@ -683,17 +815,20 @@ function partWeeks(p) {
     if (isSlab) return (x, y) => 6.02 + 0.68 * clamp((x - 4.0) / 14.3, 0, 1) + 0.08 * clamp((y - (-3.6)) / 0.4, 0, 1);
     return (x, y) => 6.55 + 2.00 * clamp((x - 3.7) / 14.6, 0, 1) + 0.22 * clamp((y - (-3.6)) / 3.6, 0, 1);
   }
-  if (p.ph === 3) {
-    return (x, y) => 9.08 + 1.58 * clamp((x - 4.0) / 18.5, 0, 1) + 0.10 * clamp((y - (-0.35)) / 0.35, 0, 1);
+  if (p.ph === 3) { // the living level slab and the balcony
+    return (x, y) => 9.08 + 1.58 * clamp((x - 4.0) / 15.2, 0, 1) + 0.10 * clamp((y - (-0.35)) / 0.35, 0, 1);
   }
-  if (p.ph === 4) {
-    return (x, y) => 11.05 + 2.85 * clamp((x - 3.7) / 14.6, 0, 1) + 0.35 * clamp((y - (-3.2)) / 10.0, 0, 1);
+  if (p.ph === 4) { // walls of the living level
+    return (x, y) => 11.05 + 2.20 * clamp((x - 3.7) / 14.6, 0, 1) + 0.30 * clamp((y - (-0.35)) / 3.55, 0, 1);
   }
-  if (p.ph === 5) {
-    return (x, y) => 13.65 + 1.25 * clamp((x - 4.0) / 7.0, 0, 1) + 0.10 * clamp((y - 2.85) / 0.35, 0, 1);
+  if (p.ph === 5) { // the upper slab, out to the nose of the cantilever
+    return (x, y) => 13.45 + 1.00 * clamp((x - 4.0) / 16.4, 0, 1) + 0.10 * clamp((y - 2.85) / 0.35, 0, 1);
+  }
+  if (p.ph === 5.5) { // walls of the upper level: complete before week 16, so drawing 04 shows them whole
+    return (x, y) => 14.55 + 1.05 * clamp((x - 3.7) / 16.7, 0, 1) + 0.25 * clamp((y - 3.2) / 4.4, 0, 1);
   }
   if (p.ph === 6) {
-    return (x, y) => 16.68 + 1.05 * clamp((x - 4.0) / 15.6, 0, 1) + 0.18 * clamp((y - 6.4) / 1.6, 0, 1);
+    return (x, y) => 16.68 + 1.05 * clamp((x - 4.0) / 16.4, 0, 1) + 0.18 * clamp((y - 6.05) / 1.55, 0, 1);
   }
   if (p.ph === 7) {
     return (x, y) => 21.10 + 3.20 * clamp((x - 3.7) / 18.8, 0, 1) + 0.35 * clamp((y - (-3.2)) / 10.8, 0, 1);
@@ -702,16 +837,18 @@ function partWeeks(p) {
   const w0 = a + span * 0.68 * u, w1 = w0 + span * 0.3, lo = p.b[ax], hi = Math.max(lo + 1e-6, p.b[ax + 3]);
   return (x, y, z) => w0 + (w1 - w0) * clamp(([x, y, z][ax] - lo) / (hi - lo), 0, 1);
 }
-const FINISH = { plaster: [25.2, 2.2], gravel: [21.3, 1.2], floorL: [26.5, 2.0], oak: [27.8, 2.6], pave: [31.8, 1.5] };
+// finishes arrive after the structure, each as its own wave from the court to the pool: [first week, weeks across the house]
+const FINISH = { clad: [22.3, 2.5], soffit: [24.4, 1.4], plaster: [25.2, 2.2], gravel: [21.3, 1.2], floorL: [26.5, 2.0], oak: [27.8, 2.6], pave: [31.6, 1.4] };
 const finishWeek = (k, x) => FINISH[k][0] + FINISH[k][1] * clamp((x - 3) / 20, 0, 1);
 
+// a face takes its material from the part: by direction (px, nx, pz, nz), else top / bot, else all
 const FACES = [
-  { n: [1, 0, 0], c: [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]], s: 'all' },
-  { n: [-1, 0, 0], c: [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]], s: 'all' },
-  { n: [0, 1, 0], c: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], s: 'top' },
-  { n: [0, -1, 0], c: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], s: 'bot' },
-  { n: [0, 0, 1], c: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], s: 'all' },
-  { n: [0, 0, -1], c: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], s: 'all' },
+  { n: [1, 0, 0], c: [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]], s: 'all', d: 'px' },
+  { n: [-1, 0, 0], c: [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]], s: 'all', d: 'nx' },
+  { n: [0, 1, 0], c: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], s: 'top', d: 'top' },
+  { n: [0, -1, 0], c: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], s: 'bot', d: 'bot' },
+  { n: [0, 0, 1], c: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], s: 'all', d: 'pz' },
+  { n: [0, 0, -1], c: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], s: 'all', d: 'nz' },
 ];
 function bucketsOf(parts, keyOf, finishes = false) {
   const B = {};
@@ -732,9 +869,9 @@ function bucketsOf(parts, keyOf, finishes = false) {
     const spec = typeof p.m === 'string' ? { all: p.m } : p.m;
     const wk = p.weeks;
     for (const f of FACES) {
-      const k0 = spec[f.s] || spec.all, key = keyOf(k0, p); if (!key) continue;
-      if (finishes && FINISH[k0] && p.k !== 'land') {
-        emit(key, p, f, wk, (x) => finishWeek(k0, x) + 0.02, 0);
+      const k0 = spec[f.d] || spec[f.s] || spec.all, key = keyOf(k0, p); if (!key) continue;
+      if (finishes && FINISH[k0] && (p.k === 'struct' || p.k === 'stair')) {
+        emit(key, p, f, wk, (x) => finishWeek(k0, x) + BUILD + 0.02, 0); // the raw face stays until the finish has closed up over it
         emit(k0, p, f, (x) => finishWeek(k0, x), () => 0, 0.0025);
       } else emit(key, p, f, wk, () => p.out || 0, 0);
     }
@@ -751,8 +888,8 @@ function bucketsOf(parts, keyOf, finishes = false) {
 }
 
 // ---------------------------------------------------------------- temporary works: telescopic steel props & H20 formwork
-// Z-coordinates of prop lines leave a wide 2.7m clear central aisle around z = -2.85 so the camera never collides with a post
-const PROP_ZS = [-7.15, -5.75, -4.35, -1.45, -0.05, 1.35, 2.75];
+// Z-coordinates of prop lines leave a 3.7 m clear aisle around the door at z = -3.98 so the camera never collides with a post
+const PROP_ZS = [-7.15, -5.75, -2.05, -0.65, 0.75, 2.15, 3.3];
 
 function propsGeo(x0, x1, z0, z1, yb, yt, wIn, out, stepX = 1.35) {
   const list = [], ply = [];
@@ -1086,11 +1223,12 @@ export function canopy(clusters, s0, s1) {
 // ---------------------------------------------------------------- build it
 // Temporary works: matched to the exact underside of each slab & clerestory (zero floating beams!)
 export const PROPS = [
-  [4.2, 18.0, -6.2, 3.6, -3.2, -0.35, [8.2, 9.0], 12.5],     // lower level under ground slab (clear of stair void)
-  [4.2, 10.8, -6.2, 3.6, 0, 2.85, [13.25, 13.55], 19.2],     // ground floor under mezzanine slab
-  [4.2, 8.2, -6.2, 3.6, 3.2, 6.4, [16.05, 16.35], 22.8],     // mezzanine under rear roof (y = 6.4)
-  [8.6, 10.9, -6.2, 3.6, 3.2, 7.6, [16.25, 16.5], 22.9],     // mezzanine under clerestory roof (y = 7.6)
-  [11.9, 18.0, -7.6, 3.6, 0, 6.4, [16.05, 16.6], 23.2],      // double-height living space under front roof (y = 6.4)
+  [4.2, 18.0, -1.6, 3.6, -3.2, -0.35, [8.2, 9.0], 12.5],      // lower level, bay A, under the living slab
+  [5.3, 18.0, -7.6, -1.7, -3.2, -0.35, [8.2, 9.0], 12.5],     // lower level, bay B (clear of the stair slot)
+  [4.2, 17.9, -1.6, 3.6, 0, 2.85, [13.05, 13.4], 19.2],       // living level, bay A, under the upper slab
+  [7.1, 19.1, -7.6, -1.7, 0, 2.85, [13.1, 13.4], 19.2],       // living level, bay B and the balcony under the cantilever (the hall stays clear)
+  [4.2, 16.4, -1.3, 3.6, 3.2, 6.4, [16.05, 16.45], 22.2],     // upper level, bay A, under its roof (y = 6.4); struck before the glass arrives
+  [7.1, 20.2, -7.6, -1.7, 3.2, 7.2, [16.1, 16.6], 22.3],      // upper level, the tall box, under its roof (y = 7.2)
 ];
 export function propsAt(week) {
   let n = 0;
@@ -1112,7 +1250,7 @@ export function buildWorld(o) {
   // the house: one geometry per material for the site, hierarchical line classes for the drawing
   const parts = houseParts();
   for (const p of parts) p.weeks = partWeeks(p);
-  const STRUCT = { conc: 'conc', floorL: 'conc', oak: 'conc', plaster: 'conc', gravel: 'conc', pave: 'conc' };
+  const STRUCT = { conc: 'conc', floorL: 'conc', oak: 'conc', plaster: 'conc', gravel: 'conc', pave: 'conc', clad: 'conc', soffit: 'conc' };
   const real = bucketsOf(parts, (k, p) => (p.k === 'land' ? k : (p.k === 'furn' || p.k === 'furnReal' ? k : (STRUCT[k] || k))), true);
   for (const k in real) addMesh(group, real[k], realOnly(R[k] || R.conc), { glass: k === 'glass' || k === 'cabGlass', shadow: k !== 'glass' && k !== 'cabGlass' && k !== 'steel' });
 
@@ -1125,6 +1263,10 @@ export function buildWorld(o) {
 
   const drawnFurn = bucketsOf(parts.filter((p) => p.k === 'furn'), () => 'paper');
   if (drawnFurn.paper) addMesh(group, drawnFurn.paper, { main: null, paper: DM.paper, nd: DM.ndFurn });
+
+  // the pool, its terrace and the court belong to the last drawing too
+  const drawnLand = bucketsOf(parts.filter((p) => p.k === 'land'), () => 'paper');
+  if (drawnLand.paper) addMesh(group, drawnLand.paper, { main: null, paper: DM.paper, nd: DM.ndFrame });
 
   // Temporary works (props & formwork decks)
   for (const [x0, x1, z0, z1, yb, yt, wIn, out] of PROPS) {
@@ -1149,7 +1291,7 @@ export function buildWorld(o) {
   const fOut = (x) => x > 18.0 ? 8.85 : 6.62 + 2.00 * clamp((x - 3.7) / 14.6, 0, 1);
   for (let z = -7.9; z <= 3.9; z += 0.35) { bar(3.78, z, fw(3.78), fOut(3.78)); bar(3.92, z + 0.15, fw(3.92), fOut(3.92)); }
   for (let x = 4.3; x <= 17.9; x += 0.35) { for (const z of [-7.94, -7.78, 3.78, 3.94]) bar(x, z, fw(x), fOut(x)); }
-  for (const z of [-7.85, -1.95, 3.85]) for (const dx of [-0.12, 0, 0.12]) for (const dz of [-0.12, 0.12]) bar(18.24 + dx, z + dz, fw(18.24 + dx), 8.85);
+  for (const z of [-7.85, -1.6, 3.85]) for (const dx of [-0.12, 0, 0.12]) for (const dz of [-0.12, 0.12]) bar(18.24 + dx, z + dz, fw(18.24 + dx), 8.85);
   addMesh(group, merge(bars), realOnly(R.rebar), { shadow: true });
   addMesh(group, merge(caps), realOnly(R.cap), { shadow: false });
 
@@ -1202,8 +1344,8 @@ export function buildWorld(o) {
     ['olive', -6, -23, 0], ['olive', -24, 4, 0], ['olive', 30, -17, 0], ['olive', 33, -10.5, 0],
     ['olive', 34, 13, 0], ['olive', -2.5, 19, 0], ['olive', 40, 2, 0], ['round', -22, -12, 0],
     ['olive', 46, -24, 0], ['olive', 52, 10, 0],
-    // Garden trees planted during fit-out (Weeks 33-35) visible through the living room window!
-    ['olive', 26.2, -6.2, 33.2], ['olive', 27.8, 2.2, 33.6], ['round', 31.5, -2.5, 34.0],
+    // Garden trees planted during fit-out (weeks 33 to 35), either side of the pool and below it
+    ['olive', 24.6, -11.6, 33.2], ['olive', 25.4, 7.4, 33.6], ['round', 33.5, -3.0, 34.0], ['olive', 20.2, 7.2, 34.3],
   ]) trees.push(t);
   const leafK = phone ? 0.55 : 1;
   for (const [kind, x, z, wIn] of trees) {
@@ -1242,7 +1384,7 @@ function buildLand(o) {
   // Depress natural terrain slightly under paved areas so ground never clips through paving slabs
   const pavedDepress = (x, z) => {
     const inCourt = x >= -7.1 && x <= 4.0 && z >= -6.6 && z <= 3.6;
-    const inGardenPave = x >= 18.1 && x <= 24.9 && z >= -7.8 && z <= 3.8;
+    const inGardenPave = x >= 18.1 && x <= 22.1 && z >= -8.2 && z <= 4.2;
     return (inCourt || inGardenPave) ? -0.09 : 0;
   };
 
@@ -1296,16 +1438,10 @@ function buildLand(o) {
   };
   const xw = (x) => clamp((x - (-10)) / 44, 0, 1), landW = (x) => -1.3 + 0.9 * xw(x), digW = (x) => 0.6 + 2.4 * clamp(x / 22, 0, 1), backW = (x) => BACKFILL + 0.3 * xw(x);
 
-  // Target grade after backfill: matches NAT[k] outside the house, passes cleanly beneath the lower-level window sill (-2.30m),
-  // and stays below the lower-level floor slab (-3.65m) inside the building footprint so dirt never enters the room.
+  // Target grade after backfill: matches NAT[k] outside the house and stays below the lower-level floor slab (-3.65m)
+  // inside the building footprint so dirt never enters the room.
   const backfillY = (k, x, z) => {
     let y = NAT[k];
-    const winX = smooth(11.4, 12.8, x) * (1 - smooth(17.4, 18.3, x));
-    const winZ = smooth(-9.2, -8.0, z) * (1 - smooth(4.0, 5.2, z));
-    if (winX * winZ > 0) {
-      const sill = -2.38 - 0.82 * clamp((x - 13.0) / 4.2, 0, 1);
-      y += (Math.min(y, sill) - y) * (winX * winZ);
-    }
     const inRoom = smooth(3.85, 4.15, x) * (1 - smooth(18.02, 18.28, x)) * smooth(-7.85, -7.55, z) * (1 - smooth(3.55, 3.85, z));
     if (inRoom > 0) y += (Math.min(y, -3.65) - y) * inRoom;
     return y;
@@ -1368,6 +1504,12 @@ function buildLand(o) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('aMix', new THREE.Float32BufferAttribute(mix, 4));
     g.setIndex(idx); g.computeVertexNormals(); stamp(g, 0);
     const m = new THREE.Mesh(g, terrainMat); m.userData.sets = { main: terrainMat, paper: null, nd: null }; m.receiveShadow = true; m.frustumCulled = false; out.push(m);
+  }
+
+  // The lake in the valley, the long water the house looks out on
+  {
+    const g = new THREE.PlaneGeometry(4200, 4200, 1, 1); g.rotateX(-Math.PI / 2); g.translate(600, -19.5, 0); stamp(g, 0);
+    const m = new THREE.Mesh(g, o.R.lake); m.userData.sets = { main: o.R.lake, paper: null, nd: null }; m.receiveShadow = false; m.frustumCulled = false; out.push(m);
   }
 
   // Block sides with architectural section hatch (drawing only)
@@ -1454,6 +1596,8 @@ function makeTerrainMat(T) {
     s.fragmentShader = s.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform sampler2D tGrass, tClay; varying vec4 vMix; varying vec3 vWp; varying float vRisen;')
       .replace('#include <map_fragment>', `
+        // once the pit is backfilled no ground shows inside the rooms of the pool level, however coarse the terrain grid
+        if (uNow > 9. && vWp.x > 4.02 && vWp.x < 18.28 && vWp.z > -7.68 && vWp.z < 3.68 && vWp.y > -3.63) discard;
         vec2 q = vWp.xz;
         vec3 soil = texture2D(map, q / 3.0).rgb * mix(.84, 1.12, texture2D(map, q / 23.).r);
         vec3 grass = texture2D(tGrass, q / 3.8).rgb * mix(.86, 1.12, texture2D(tGrass, q / 29. + .37).g);
