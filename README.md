@@ -1,8 +1,8 @@
-# seofessionals three.js Demo 4
+# three.js Demo 4
 
 Ein Bauablaufplan: sechs Zeichnungen eines Hauses, von der Baugrube bis zur Übergabe. Scrollen Sie in Zeichnung 01, und hinter der Tusche strömt die echte Baustelle herein. Dann wird der Scroll zum Kalender, und Sie gehen über die Baustelle, während das Haus um Sie herum Woche für Woche wächst, in Woche 18 durch einen Wald aus Stützen, bis zum Tag der Übergabe.
 
-[**Live ansehen**](https://seofessionals-3js.github.io/seofessionals-threejs-demo-4/) · [**Startprompt**](PROMPT.md) · [**Alle Demos**](https://seofessionals-3js.github.io/seofessionals-threejs-demos/)
+[**Live ansehen**](https://seofessionals-3js.github.io/threejs-demo-4/) · [**Startprompt**](PROMPT.md) · [**Alle Demos**](https://seofessionals-3js.github.io/threejs-demos/)
 
 ## So funktioniert es
 
@@ -30,6 +30,6 @@ Dann http://localhost:8000/ öffnen. Am besten auf einem Laptop mit aktuellem Br
 
 ## Herkunft und Lizenz
 
-Basiert auf „Build Time-Lapse“ aus [flat-to-3d](https://github.com/Sam1983Aing/flat-to-3d) von Samnang Aing, veröffentlicht unter der MIT-Lizenz, und für seofessionals ins Deutsche übersetzt. Die Lizenz liegt unverändert in [LICENSE](LICENSE).
+Basiert auf „Build Time-Lapse“ aus [flat-to-3d](https://github.com/Sam1983Aing/flat-to-3d) von Samnang Aing, veröffentlicht unter der MIT-Lizenz, und ins Deutsche übersetzt. Die Lizenz liegt unverändert in [LICENSE](LICENSE).
 
 Alle Büros, Häuser, Adressen und Kontaktdaten in der Demo sind erfunden. three.js (MIT) wird von einem CDN geladen, die Schriften Chakra Petch und IBM Plex Mono von Google Fonts (SIL Open Font License).
