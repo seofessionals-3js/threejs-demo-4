@@ -3,19 +3,22 @@
 // Everything is stamped with the weeks it is there, like the house.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { V, stamp, merge, addMesh, worldUV, canopy, DM, rnd, natural, DOOR, DOOR0, STAIR, FW } from './world.js';
+import { V, stamp, merge, addMesh, worldUV, canopy, DM, rnd, natural, DOOR, DOOR0, STAIR, FW, QL, segs, MATTE, SOFT } from './world.js';
 
+// Every round thing takes its number of segments from the level of detail (QL in world.js): a rounded corner of a few
+// millimetres needs one bevel, a sofa cushion needs more, and a phone needs fewer of both than a desktop.
 const rb = (w, h, d, r, x = 0, y = 0, z = 0, seg = 4) => {
-  const g = new RoundedBoxGeometry(w, h, d, seg, Math.max(0.002, Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3)));
+  const g = new RoundedBoxGeometry(w, h, d, Math.min(seg, QL.rb(r)), Math.max(0.002, Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3)));
   g.translate(x, y, z);
   return g;
 };
 const bx = (w, h, d, x = 0, y = 0, z = 0) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); return g; };
-const cyl = (r0, r1, h, x = 0, y = 0, z = 0, seg = 20) => { const g = new THREE.CylinderGeometry(r0, r1, h, seg); g.translate(x, y + h / 2, z); return g; };
-const lathe = (pts, x, y, z, seg = 28) => { const g = new THREE.LatheGeometry(pts.map(([a, b]) => new THREE.Vector2(a, b)), seg); g.translate(x, y, z); return g; };
+const cyl = (r0, r1, h, x = 0, y = 0, z = 0, seg = 20) => { const g = new THREE.CylinderGeometry(r0, r1, h, segs(seg, Math.max(r0, r1) < 0.02 ? 4 : 8)); g.translate(x, y + h / 2, z); return g; };
+const lathe = (pts, x, y, z, seg = 28) => { const g = new THREE.LatheGeometry(pts.map(([a, b]) => new THREE.Vector2(a, b)), Math.max(12, Math.round(seg * QL.lathe))); g.translate(x, y, z); return g; };
+const sph = (r, w, h, ...rest) => new THREE.SphereGeometry(r, Math.max(8, Math.round(w * QL.sph)), Math.max(6, Math.round(h * QL.sph)), ...rest);
 const tube = (a, b, r, seg = 10) => {
   const d = b.clone().sub(a), len = d.length();
-  const g = new THREE.CylinderGeometry(r, r, len, seg);
+  const g = new THREE.CylinderGeometry(r, r, len, segs(seg, r < 0.02 ? 4 : 5));
   g.translate(0, len / 2, 0);
   g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), d.normalize()));
   g.translate(a.x, a.y, a.z);
@@ -28,14 +31,28 @@ export function buildStage(R) {
   // `piece` places geometries in world space, applies world-metre UVs so textures & bump maps show crisp grain,
   // and routes clean architectural forms to `drawn` (for Tile 06) and fine accessories to `real` (so Tile 06 stays uncluttered).
   let sched = FW; // the upper and living levels keep the weeks of the first schedule, brought forward (see FW in world.js)
+  // The buckets are kept by floor as well as by material ('walnut@u' is the walnut of the upper level): a floor is
+  // furnished in its own weeks, so until then its whole mesh is skipped (tagWeeks in world.js). Small flat coloured
+  // things (books, pots, cushions) share one material and carry their colour on the vertices.
+  const tint = new THREE.Color();
   const piece = (bucket, list, x, y, z, ry, week, out = 0) => {
     const m = new THREE.Matrix4().makeRotationY(ry).setPosition(x, y, z);
-    for (const [mat, g, realOnlyItem] of list) {
+    const zone = y >= 3 ? 'u' : y >= -0.5 ? 'l' : 'p';
+    for (const [mat, g0, realOnlyItem] of list) {
+      const g = g0.index ? g0.toNonIndexed() : g0;
       g.applyMatrix4(m);
       if (mat !== 'art') worldUV(g);
       stamp(g, sched(week), out);
       const target = realOnlyItem ? real : bucket;
-      (target[mat] || (target[mat] = [])).push(g);
+      const shared = mat in MATTE ? 'matte' : mat in SOFT ? 'soft' : null;
+      if (shared) {
+        tint.setHex(MATTE[mat] ?? SOFT[mat]);
+        const n = g.attributes.position.count, c = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) { c[i * 3] = tint.r; c[i * 3 + 1] = tint.g; c[i * 3 + 2] = tint.b; }
+        g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+      }
+      const key = (shared || mat) + '@' + zone;
+      (target[key] || (target[key] = [])).push(g);
     }
   };
   const lights = [];
@@ -58,7 +75,7 @@ export function buildStage(R) {
     seat.rotateX(0.08); seat.translate(0, 0.36, 0.02); L.push(['leather', seat]);
     const back = rb(0.74, 0.56, 0.13, 0.055, 0, 0, 0);
     back.rotateX(-0.26); back.translate(0, 0.66, -0.31); L.push(['leather', back]);
-    const bolster = new THREE.CylinderGeometry(0.065, 0.065, 0.62, 16);
+    const bolster = new THREE.CylinderGeometry(0.065, 0.065, 0.62, segs(16, 8));
     bolster.rotateZ(Math.PI / 2); bolster.translate(0, 0.84, -0.32); L.push(['leather', bolster, true]);
     return L;
   };
@@ -172,7 +189,7 @@ export function buildStage(R) {
       piece(real, [
         ['ink', cyl(0.003, 0.003, cord, 0, 2.28, 0, 6), true],
         ['brass', cyl(0.026, 0.026, 0.06, 0, 2.24, 0, 12), true],
-        ['shade', (() => { const g = new THREE.SphereGeometry(0.15, 24, 16); g.translate(0, 2.10, 0); return g; })(), true],
+        ['shade', sph(0.15, 24, 16).translate(0, 2.10, 0), true],
       ], x, UP, z, 0, 33.30);
     }
 
@@ -254,7 +271,7 @@ export function buildStage(R) {
     // Three alabaster pendant globes over the dining table (Wk 35.80)
     for (const dx of [-0.8, 0, 0.8]) {
       piece(real, [
-        ['shade', (() => { const g = new THREE.SphereGeometry(0.145, 24, 16); g.translate(0, 1.98, 0); return g; })(), true],
+        ['shade', sph(0.145, 24, 16).translate(0, 1.98, 0), true],
         ['brass', cyl(0.025, 0.025, 0.06, 0, 2.11, 0, 12), true],
         ['ink', cyl(0.003, 0.003, 0.70, 0, 2.15, 0, 6), true],
       ], TX + dx, 0, TZ, 0, 35.80);
@@ -301,7 +318,7 @@ export function buildStage(R) {
       c.rotateX(rx); c.rotateZ(rz); c.translate(x, 0.56, z);
       L.push([mat, c, true]);
     }
-    const bolsterG = new THREE.CylinderGeometry(0.085, 0.085, 0.64, 20);
+    const bolsterG = new THREE.CylinderGeometry(0.085, 0.085, 0.64, segs(20, 8));
     bolsterG.rotateZ(Math.PI / 2); bolsterG.rotateY(0.18); bolsterG.translate(-1.12, 0.47, 0.38);
     L.push(['cushionB', bolsterG, true]);
     return L;
@@ -318,7 +335,7 @@ export function buildStage(R) {
       ['book1', rb(0.36, 0.042, 0.27, 0.006, -0.44, 0.383, 0.08), true],
       ['book2', rb(0.32, 0.036, 0.24, 0.006, -0.43, 0.422, 0.08), true],
       ['book0', rb(0.28, 0.032, 0.21, 0.006, -0.42, 0.456, 0.07), true],
-      ['brass', (() => { const g = new THREE.SphereGeometry(0.038, 16, 12); g.translate(-0.42, 0.51, 0.07); return g; })(), true],
+      ['brass', sph(0.038, 16, 12).translate(-0.42, 0.51, 0.07), true],
       ['ceramic', lathe([[0, 0], [0.09, 0], [0.12, 0.07], [0.105, 0.22], [0.055, 0.32], [0.05, 0.38], [0.065, 0.40], [0, 0.40]], 0.38, 0.36, -0.10), true],
       ['terracotta', lathe([[0, 0], [0.11, 0], [0.18, 0.05], [0.19, 0.085], [0.175, 0.085], [0.10, 0.02], [0, 0.02]], 0.04, 0.36, 0.16), true],
     ];
@@ -366,11 +383,11 @@ export function buildStage(R) {
   // 7. Brass and travertine arc floor lamp reaching over the sofa from behind (Wk 37.24)
   {
     const a = V(0, 0.05, 0), c = new THREE.QuadraticBezierCurve3(a, V(0.15, 2.55, 0.2), V(0.95, 2.02, 1.0));
-    const t = new THREE.TubeGeometry(c, 40, 0.014, 10, false);
+    const t = new THREE.TubeGeometry(c, Math.round(40 * QL.cyl), 0.014, segs(10, 5), false);
     piece(drawn, [
       ['travertine', cyl(0.20, 0.21, 0.07, 0, 0, 0, 28), true],
       ['brass', t, true],
-      ['shade', (() => { const g = new THREE.SphereGeometry(0.24, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2.1); g.scale(1, 0.7, 1); g.translate(0.95, 1.90, 1.0); return g; })(), true],
+      ['shade', sph(0.24, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2.1).scale(1, 0.7, 1).translate(0.95, 1.90, 1.0), true],
     ], 8.95, 0, -7.32, 0, 37.24);
     lights.push({ p: V(9.9, 1.75, -6.32), k: 1.15, g: 'lv' });
   }
@@ -407,7 +424,7 @@ export function buildStage(R) {
       const z = p.getZ(i) + (z0 + z1) / 2;
       p.setXYZ(i, x + 0.042 * Math.sin((z - z0) * 26), p.getY(i) + (y0 + y1) / 2, z);
     }
-    g.computeVertexNormals(); stamp(g, FW(37.54)); (real.sheer || (real.sheer = [])).push(g);
+    g.computeVertexNormals(); stamp(g, FW(37.54)); (real['sheer@l'] || (real['sheer@l'] = [])).push(g.toNonIndexed());
   }
 
   // From here on the weeks are the real ones: the terrace, the planting and the pool level close the programme.
@@ -489,7 +506,7 @@ export function buildStage(R) {
     // P5. Billiards: the balls on the cloth (Wk 37.24) and three brass pendants over the table (Wk 37.3)
     {
       const BX = 12.4, BZ = 1.05, by = 0.8 + 0.012 + 0.029, B = [];
-      const ball = (mat, x, z) => { const g = new THREE.SphereGeometry(0.029, 14, 10); g.translate(x, by, z); B.push([mat, g, true]); };
+      const ball = (mat, x, z) => { const g = sph(0.029, 14, 10); g.translate(x, by, z); B.push([mat, g, true]); };
       ball('ceramic', -0.78, 0.04);
       let n = 0;
       for (let r = 0; r < 4; r++) for (let c = 0; c <= r; c++) ball(['terracotta', 'brass', 'ink', 'cushionA', 'cushionB'][n++ % 5], 0.52 + r * 0.052, (c - r / 2) * 0.06);
@@ -602,7 +619,7 @@ export function buildStage(R) {
     // a bundle of reinforcing bars on timber bearers, on the flat below the bank
     const L = [], rx = 27.7, rz = 10.0, ry = natural(rx, rz);
     for (let i = 0; i < 40; i++) {
-      const g = new THREE.CylinderGeometry(0.008, 0.008, 6, 5);
+      const g = new THREE.CylinderGeometry(0.008, 0.008, 6, QL.treeLow ? 3 : 5);
       g.rotateX(Math.PI / 2);
       g.translate(rx + Math.floor(i / 5) * 0.022, ry + 0.12 + (i % 5) * 0.018, rz + (rnd() - 0.5) * 0.04);
       L.push(g);
@@ -629,9 +646,20 @@ export function buildStage(R) {
     const kg = merge(K); worldUV(kg); addMesh(group, kg, { main: R.block, paper: null, nd: null });
   }
 
-  // Merge meshes: `drawn` uses DM.ndFurn so Tile 06 renders delicate interior line weights, `real` renders 3D only
-  for (const k in drawn) addMesh(group, merge(drawn[k]), { main: R[k], paper: DM.paper, nd: DM.ndFurn }, { shadow: k !== 'sheer' && k !== 'rugM' });
-  for (const k in real) addMesh(group, merge(real[k]), { main: R[k], paper: null, nd: null }, { shadow: k !== 'sheer' && k !== 'rugM' });
+  // Merge. On site every material of a floor is one mesh, whether the sheet draws the piece or not. For the sheet the
+  // drawn pieces of a floor are one mesh of their own: the drawing uses the same two materials for all of them
+  // (DM.ndFurn gives Tile 06 its delicate interior line weight).
+  const keys = [...new Set([...Object.keys(drawn), ...Object.keys(real)])];
+  for (const key of keys) {
+    const k = key.split('@')[0];
+    addMesh(group, merge([...(drawn[key] || []), ...(real[key] || [])]), { main: R[k], paper: null, nd: null }, { shadow: k !== 'sheer' && k !== 'rugM' });
+  }
+  for (const zone of ['u', 'l', 'p']) {
+    const list = Object.keys(drawn).filter((key) => key.endsWith('@' + zone)).flatMap((key) => drawn[key]);
+    if (!list.length) continue;
+    const g = merge(list.map((q) => { const c = q.clone(); c.deleteAttribute('color'); c.deleteAttribute('uv'); return c; }));
+    addMesh(group, g, { main: null, paper: DM.paper, nd: DM.ndFurn });
+  }
   group.userData.door = door; group.userData.door0 = door0; group.userData.lights = lights;
   return group;
 }

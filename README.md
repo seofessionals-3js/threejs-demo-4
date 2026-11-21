@@ -24,7 +24,7 @@ Ebenen auf -3,20 (Poolgeschoss), 0,00 (Wohngeschoss) und +3,20 (Obergeschoss), D
 
 ## Farben und Schriften
 
-Papier `#f1f0e6`, Waldgrün `#10241a`, Blattgrün `#5fa512`, Limette `#c4f03e`. BBH Bogle für Überschriften, Arimo für alles, was gelesen wird. Beide Schriften liegen in `fonts/` (SIL Open Font License, Lizenztexte daneben). BBH Bogle enthält keine Umlaute, deshalb kommen die Überschriften ohne aus.
+Die Zeichnung folgt dem deutschen Planzeichen-Code: Planweiß `#f5f4ef` als Papier, Strich in Graphit `#17191c`, **Neubau-Rot `#d43a2a`** als einziger Akzent (auf dunklem Glas `#ee5a48`, als Tönung `#f4cfc8`), Gelb `#f0c21a` nur mit Planbedeutung (Aushub, Provisorium, in Arbeit), Grau `#9b9d9f` für Bestand. In den sechs Zeichnungen steht die Arbeit der jeweiligen Phase in Rot, früher Gebautes in Grau, der Aushub in Gelb; die Abtastkante beim Eintauchen ist Neubau-Rot. Die Einblendungen auf der Baustelle sind Graphitglas mit Papiertext. Das Haus selbst: Travertin `#e3d5ba`, Beton `#bdb9b0`, Eiche `#b98c56`, Nussbaum `#7a5a3c`, Glas `#c5dadf`, Pool `#7fb9c6`, See `#9fb8c2`, Gras `#86a05e`, Himmel `#b9d2e2` im Zenit bis `#dfe9ef` am Horizont (dunstig, nie kobaltblau). BBH Bogle für Überschriften, Arimo für alles, was gelesen wird. Beide Schriften liegen in `fonts/` (SIL Open Font License, Lizenztexte daneben). BBH Bogle enthält keine Umlaute, deshalb kommen die Überschriften ohne aus.
 
 ## Dateien
 
