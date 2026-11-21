@@ -7,12 +7,14 @@
 <meta name="description" content="Projekt Steininger: achtunddreißig Wochen Bauzeit in einem Scroll. Ein begehbarer Bau-Zeitraffer in three.js für ein Travertinhaus am Hang über dem See.">
 <meta name="author" content="Micha Schwan">
 <meta name="theme-color" content="#f1f0e6">
-<link rel="preload" href="fonts/BBHBogle-Regular.ttf" as="font" type="font/ttf" crossorigin>
-<link rel="preload" href="fonts/Arimo-VariableFont_wght.ttf" as="font" type="font/ttf" crossorigin>
+<link rel="preload" href="fonts/BBHBogle-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/Arimo-VariableFont_wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js">
 <style>
   /* The two faces of the sheet: BBH Bogle for the headlines, Arimo for everything that is read */
-  @font-face { font-family: 'BBH Bogle'; src: url('fonts/BBHBogle-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-  @font-face { font-family: 'Arimo'; src: url('fonts/Arimo-VariableFont_wght.ttf') format('truetype'); font-weight: 400 700; font-style: normal; font-display: swap; }
+  @font-face { font-family: 'BBH Bogle'; src: url('fonts/BBHBogle-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+  @font-face { font-family: 'Arimo'; src: url('fonts/Arimo-VariableFont_wght.woff2') format('woff2'); font-weight: 400 700; font-style: normal; font-display: swap; }
   :root {
     --paper: #f1f0e6;
     --ink: #10241a;      /* deep forest: text, lines, every dark overlay */
@@ -29,7 +31,9 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--paper); color: var(--ink); }
   body { overflow-x: hidden; overscroll-behavior: none; -webkit-font-smoothing: antialiased; font-synthesis: none; }
-  #gl { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 0; }
+  /* The canvas is as tall as the screen with the URL bar of a phone slid away (lvh) and never changes size while it
+     slides; everything that has to be read sits in the part that is always visible (svh). */
+  #gl { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; height: 100lvh; display: block; z-index: 0; }
   #track { height: 700vh; }
   a { color: inherit; }
 
@@ -86,6 +90,10 @@
     padding: 14px 16px 12px; font: 500 12px/1.35 var(--label);
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   }
+  /* blurring what is behind a panel means reading the canvas back every frame: a phone gets solid glass instead */
+  html:not([data-tier="high"]) .panel, html:not([data-tier="high"]) #prog.hud .rowsbg { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  html:not([data-tier="high"]) .panel { background: rgba(var(--deep), 0.97); }
+  html:not([data-tier="high"]) #prog.hud .rowsbg { background: rgba(var(--deep), 0.92); }
   .panel[hidden] { display: none; }
   .panel h2 { font: 700 9.5px/1 var(--label); letter-spacing: .16em; text-transform: uppercase; color: var(--lime); margin: 0 0 9px; }
   .panel h2:not(:first-child) { margin-top: 15px; }
@@ -138,7 +146,7 @@
 
   /* The sheet: everything that zooms with the paper. Head, six drawings, title block. */
   #sheet {
-    position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 1;
+    position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; height: 100svh; z-index: 1;
     display: flex; flex-direction: column;
     padding: 64px var(--gx) 14px;
     transform-origin: 0 0; pointer-events: none; will-change: transform, opacity;
@@ -195,10 +203,10 @@
   /* Six axonometric sequence tiles */
   .grid {
     flex: 1; min-height: 0; margin-top: 16px;
-    display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, minmax(0, 1fr));
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr));
     column-gap: 16px; row-gap: 10px;
   }
-  figure.tile { margin: 0; display: flex; flex-direction: column; min-height: 0; }
+  figure.tile { margin: 0; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   .frame {
     flex: 1; min-height: 0; position: relative;
     border: 1.5px solid rgba(var(--ink-rgb), 0.65);
@@ -298,7 +306,7 @@
   }
 
   /* Dive & site HUD */
-  #hud { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+  #hud { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; height: 100lvh; z-index: 3; pointer-events: none; }
   .chip {
     position: absolute; left: var(--gx); top: 60px; max-width: calc(100vw - 2 * var(--gx));
     font: 600 10px/1 var(--label); letter-spacing: .14em; text-transform: uppercase;
@@ -361,7 +369,7 @@
     .bigcta { font-size: 9px; letter-spacing: .1em; padding: 10px 11px 9px; }
     .bigcta i { margin-left: 5px; }
     #progSlot { width: 100%; height: 96px; margin-top: 20px; }
-    .grid { margin-top: 12px; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, minmax(0, 1fr)); column-gap: 10px; row-gap: 8px; }
+    .grid { margin-top: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); column-gap: 10px; row-gap: 8px; }
     .frame::before { font-size: 9.5px; padding: 3px 5px 2px; left: 5px; top: 5px; }
     figcaption { font-size: 8.5px; letter-spacing: .06em; margin-top: 4px; }
     figcaption .wk { font-size: 8px; }

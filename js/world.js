@@ -5,6 +5,18 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const V = (x, y, z) => new THREE.Vector3(x, y, z);
+
+// ---------------------------------------------------------------- level of detail
+// One table for everything that costs triangles or texels. main.js picks the row from the device tier (js/quality.js)
+// before anything is built: 'low' is a phone, 'mid' a tablet or a small laptop, 'high' a desktop.
+const LEVELS = {
+  low: { tex: 512, aniso: 2, bump: false, step: 0.4, far: 72, heap: 0.3, cyl: 0.6, lathe: 0.55, sph: 0.6, leaf: 0.42, leafS: 1.26, tree: 0.36, treeLow: true, rb: (r) => (r < 0.03 ? 1 : 2) },
+  mid: { tex: 1024, aniso: 4, bump: true, step: 0.3, far: 120, heap: 0.2, cyl: 0.8, lathe: 0.75, sph: 0.8, leaf: 0.65, leafS: 1.12, tree: 0.6, treeLow: false, rb: (r) => (r < 0.03 ? 1 : r < 0.06 ? 2 : 3) },
+  high: { tex: 1024, aniso: 8, bump: true, step: 0.2, far: 180, heap: 0.15, cyl: 1, lathe: 1, sph: 1, leaf: 1, leafS: 1, tree: 1, treeLow: false, rb: (r) => (r < 0.02 ? 2 : r < 0.05 ? 3 : 4) },
+};
+export const QL = Object.assign({}, LEVELS.high);
+export const setLevel = (tier) => Object.assign(QL, LEVELS[tier] || LEVELS.high);
+export const segs = (n, min = 6) => Math.max(min, Math.round(n * QL.cyl));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
@@ -88,9 +100,9 @@ function stones(g, s, n, r0, r1, cols, shadow = 0.35) {
   }
 }
 
-export function makeTextures(renderer, phone) {
-  MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
-  const S = phone ? 512 : 1024;
+export function makeTextures(renderer) {
+  MAX_ANISO = Math.min(QL.aniso, renderer.capabilities.getMaxAnisotropy());
+  const S = QL.tex;
   const T = {};
   // site earth, compacted with aggregate and subtle track grooves
   T.soil = canvasTex(S, 3.0, (g, s) => {
@@ -353,12 +365,13 @@ export const INK = new THREE.Color(PAL.ink);
 export const ACCENT = new THREE.Color(PAL.leaf);
 const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return new THREE.Vector3((n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
 export const U = {
-  uNow: { value: 99 }, uNewFrom: { value: 99 }, uTintOn: { value: 1 },
+  uNow: { value: 99 }, uFrom: { value: TILES.map((t) => t.w0) },
   uBlock: { value: new THREE.Vector4(-10, -20, 34, 14) },
   uPaper: { value: rgb(PAL.paper) },
   uInk: { value: rgb(PAL.ink) },
-  uTint: { value: rgb(PAL.tint) },
   uAccent: { value: rgb(PAL.leaf) }, uLime: { value: rgb(PAL.lime) }, uDeep: { value: rgb(PAL.deep) },
+  // the fills of a drawing: what is new in its weeks, temporary works, earthworks, and what stood before
+  uTintNew: { value: rgb(PAL.tint) }, uTintTemp: { value: rgb(PAL.tint) }, uTintEarth: { value: rgb(PAL.tint) }, uTintOld: { value: rgb(PAL.paper) },
   real: { value: 6 }, fx: { value: 1 },
 };
 const DRAW_VS = `
@@ -369,7 +382,7 @@ const DRAW_VS = `
     vec4 mv = viewMatrix * wp; vV = mv.xyz; gl_Position = projectionMatrix * mv;
   }`;
 const DRAW_HEAD = `
-  uniform float uNow, uNewFrom, uTintOn, uClip, uContour, uHatch, uWeight; uniform vec4 uBlock; uniform vec3 uPaper, uInk, uTint;
+  uniform float uNow, uClip, uContour, uHatch, uWeight, uKind; uniform float uFrom[6]; uniform vec4 uBlock; uniform vec3 uPaper, uInk;
   varying float vWeek; varying float vOut; varying vec3 vW; varying vec3 vV;
   bool gone(){
     if (vWeek > uNow + 1e-4) return true;
@@ -377,23 +390,27 @@ const DRAW_HEAD = `
     if (uClip > .5 && (vW.x < uBlock.x || vW.x > uBlock.z || vW.z < uBlock.y || vW.z > uBlock.w)) return true;
     return false;
   }`;
+// The paper pass lays down paper, shade, contours and hatch, and the week in alpha. The line pass writes the normal,
+// the line weight, and in alpha what the part is (o.kind: 0 land, 1 earthworks, 2 temporary works, 3 the building)
+// together with the first drawing of the sheet that shows it. The display fills each drawing from that (js/pipe.js),
+// so the passes themselves are the same for all six drawings and a cell can be shared between them.
 function drawMat(kind, o = {}) {
   const uniforms = {
-    uNow: U.uNow, uNewFrom: U.uNewFrom, uBlock: U.uBlock, uPaper: U.uPaper, uInk: U.uInk, uTint: U.uTint,
-    uTintOn: o.tint === false ? { value: 0 } : U.uTintOn, uClip: { value: o.clip ? 1 : 0 },
+    uNow: U.uNow, uBlock: U.uBlock, uPaper: U.uPaper, uInk: U.uInk, uFrom: U.uFrom,
+    uClip: { value: o.clip ? 1 : 0 }, uKind: { value: o.kind ?? 3 },
     uContour: { value: o.contour ? 1 : 0 }, uHatch: { value: o.hatch ? 1 : 0 }, uWeight: { value: o.weight ?? 1.0 },
   };
   const fs = kind === 'nd' ? `${DRAW_HEAD}
     void main(){
       if (gone()) discard;
       vec3 n = normalize(cross(dFdx(vV), dFdy(vV)));
-      gl_FragColor = vec4(n.xy * .5 + .5, uWeight, 1.);
+      float ph = 0.; for (int i = 0; i < 6; i++) ph += step(uFrom[i] + 1e-3, vWeek);
+      gl_FragColor = vec4(n.xy * .5 + .5, uWeight, (uKind * 8. + ph) / 31.);
     }` : `${DRAW_HEAD}
     float lines(float f, float wid){ float w = max(fwidth(f), 1e-5); float d = abs(fract(f + .5) - .5); return 1. - smoothstep(w * (wid - .5), w * (wid + .5), d); }
     void main(){
       if (gone()) discard;
       vec3 c = uPaper;
-      if (uTintOn > .5 && vWeek > uNewFrom + 1e-3) c = uTint;
       if (uContour < .5 && uHatch < .5) {
         vec3 wn = normalize(cross(dFdx(vW), dFdy(vW)));
         float shade = clamp((wn.z * 0.5 - wn.x * 0.45) * 0.032, -0.02, 0.028);
@@ -412,17 +429,18 @@ export const DM = {
   paper: drawMat('paper'),
   nd: drawMat('nd', { weight: 1.0 }),
   ndFrame: drawMat('nd', { weight: 0.52 }),
-  ndProp: drawMat('nd', { weight: 0.58 }),
+  ndProp: drawMat('nd', { weight: 0.58, kind: 2 }),
   ndFurn: drawMat('nd', { weight: 0.34 }),
-  land: drawMat('paper', { clip: true, contour: true, tint: false }),
-  landNew: drawMat('paper', { clip: true, contour: true }),
-  ndLand: drawMat('nd', { clip: true, weight: 0.85 }),
+  land: drawMat('paper', { clip: true, contour: true }),
+  ndLand: drawMat('nd', { clip: true, weight: 0.85, kind: 0 }),
+  ndEarth: drawMat('nd', { clip: true, weight: 0.85, kind: 1 }),
   hatch: drawMat('paper', { hatch: true }),
 };
 
 // ---------------------------------------------------------------- real materials
 let ENV = null;
-const std = (o) => new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.88, metalness: 0, envMap: ENV, envMapIntensity: 0.32 }, o));
+// (a bump map costs three texture reads a pixel: a phone does without them)
+const std = (o) => { if (!QL.bump) { delete o.bumpMap; delete o.bumpScale; } return new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.88, metalness: 0, envMap: ENV, envMapIntensity: 0.32 }, o)); };
 // Every real material knows its week. A part does not pop in: for its first BUILD weeks it is made of slices of
 // itself, thin at first with gaps you can see through, which widen until they meet. While it grows the part is
 // washed in lime and every slice carries a bright edge. U.fx at 0 (reduced motion) turns that off.
@@ -444,15 +462,22 @@ void main() {
     float bW = mix(.24, 1.16, bS * bS);              // the slices stay thin for most of the time, then close quickly
     if (bL + (bN - .5) * .3 > bW) discard;
     bE = smoothstep(bW - .4, bW, bL) * (1. - bS);
-  }`).replace('#include <dithering_fragment>', `#include <dithering_fragment>
-  if (bK < 1.) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(.6, .93, .16) * 1.35, (1. - bK) * .3 + bE * .62);`);
+  }`).replace('#include <tonemapping_fragment>', `if (bK < 1.) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(.6, .93, .16) * 1.35, (1. - bK) * .3 + bE * .62);
+  #include <tonemapping_fragment>`);
 };
 export function weekly(m) { m.onBeforeCompile = WEEKLY; m.customProgramCacheKey = () => 'weekly'; return m; }
 export const DEPTH_WEEKLY = weekly(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }));
 
+// Small flat coloured things (books, pots, cushions) share a material and carry their colour on the vertices,
+// so a shelf of books in five colours is one draw call instead of five.
+export const MATTE = { book0: 0x8e3b2a, book1: 0x2f4a5a, book2: 0xd8cfb8, book3: 0x5c6b4a, book4: 0x1f1e1c, terracotta: 0xad623e, soilPot: 0x3b2f25 };
+export const SOFT = { cushionA: 0xb85228, cushionB: 0xcba466, cushionC: 0xe6dfd2, sofaDark: 0xb7a892 };
+
 export function makeMaterials(T, env) {
   ENV = env;
   const R = {
+    matte: std({ vertexColors: true, roughness: 0.7 }),
+    soft: std({ vertexColors: true, bumpMap: T.linenBump, bumpScale: 0.005, roughness: 0.9 }),
     concFresh: std({ map: T.concFresh, bumpMap: T.concBump, bumpScale: 0.012, roughness: 0.82 }),
     conc: std({ map: T.conc, bumpMap: T.concBump, bumpScale: 0.015, roughness: 0.78 }),
     oak: std({ map: T.oak, bumpMap: T.oakBump, bumpScale: 0.008, roughness: 0.42, envMapIntensity: 0.52 }),
@@ -466,36 +491,20 @@ export function makeMaterials(T, env) {
     lake: std({ color: 0x51788c, roughness: 0.22, metalness: 0.1, envMapIntensity: 1.1 }),
     pave: std({ map: T.pave, bumpMap: T.concBump, bumpScale: 0.01, roughness: 0.8 }),
     sofa: std({ map: T.linen, bumpMap: T.linenBump, bumpScale: 0.006, roughness: 0.9, envMapIntensity: 0.18 }),
-    sofaDark: std({ color: 0xb7a892, bumpMap: T.linenBump, bumpScale: 0.005, roughness: 0.9 }),
     rugM: std({ map: T.rug, bumpMap: T.linenBump, bumpScale: 0.012, roughness: 0.98, envMapIntensity: 0.1 }),
     travertine: std({ map: T.travertine, bumpMap: T.concBump, bumpScale: 0.006, roughness: 0.48, envMapIntensity: 0.4 }),
-    cushionA: std({ color: 0xb85228, bumpMap: T.linenBump, bumpScale: 0.005, roughness: 0.88 }),
-    cushionB: std({ color: 0xcba466, bumpMap: T.linenBump, bumpScale: 0.005, roughness: 0.88 }),
-    cushionC: std({ color: 0xe6dfd2, bumpMap: T.linenBump, bumpScale: 0.005, roughness: 0.92 }),
     brass: std({ color: 0xc29b61, metalness: 0.92, roughness: 0.26, envMapIntensity: 1.0 }),
     ceramic: std({ color: 0xefe9de, roughness: 0.28, envMapIntensity: 0.45 }),
-    terracotta: std({ color: 0xad623e, roughness: 0.82 }),
     art: std({ map: T.canvas, roughness: 0.85, envMapIntensity: 0.12 }),
     sheer: std({ color: 0xf1ece0, roughness: 0.96, side: THREE.DoubleSide, envMapIntensity: 0.12 }),
     shade: std({ color: 0xfff5e0, emissive: 0xffc885, emissiveIntensity: 0, roughness: 0.5 }),
-    soilPot: std({ color: 0x3b2f25, roughness: 1 }),
     ink: std({ color: 0x1f1e1c, roughness: 0.42, metalness: 0.2 }),
     steel: std({ color: 0x242422, metalness: 0.68, roughness: 0.38, envMapIntensity: 0.55 }),
     glass: new THREE.MeshBasicMaterial({ color: 0xcfe2e6, envMap: env, combine: THREE.MixOperation, reflectivity: 0.26, transparent: true, opacity: 0.09, depthWrite: false }),
-    fabric: std({ map: T.linen, roughness: 0.9 }),
-    rug: std({ color: 0xb9a88e }),
     walnut: std({ map: T.walnut, bumpMap: T.oakBump, bumpScale: 0.006, roughness: 0.48, envMapIntensity: 0.42 }),
     leather: std({ color: 0x824829, bumpMap: T.linenBump, bumpScale: 0.003, roughness: 0.46, envMapIntensity: 0.48 }),
     linen: std({ map: T.linen, bumpMap: T.linenBump, bumpScale: 0.005, roughness: 0.9 }),
-    stone: std({ map: T.travertine, roughness: 0.32, envMapIntensity: 0.45 }),
-    white: std({ color: 0xf4f2ee, roughness: 0.25 }),
-    mirror: std({ color: 0xffffff, metalness: 1, roughness: 0.02, envMapIntensity: 1.2 }),
     teak: std({ map: T.oak, color: 0xc29a72, roughness: 0.62 }),
-    book0: std({ color: 0x8e3b2a, roughness: 0.6 }),
-    book1: std({ color: 0x2f4a5a, roughness: 0.6 }),
-    book2: std({ color: 0xd8cfb8, roughness: 0.6 }),
-    book3: std({ color: 0x5c6b4a, roughness: 0.6 }),
-    book4: std({ color: 0x1f1e1c, roughness: 0.6 }),
     ply: std({ color: 0xc49866, bumpMap: T.oakBump, bumpScale: 0.005, roughness: 0.82 }),
     prop: std({ color: 0xdba028, roughness: 0.46, metalness: 0.35, envMapIntensity: 0.45 }),
     yellow: std({ map: T.machine, bumpMap: T.concBump, bumpScale: 0.004, roughness: 0.38, metalness: 0.22, envMapIntensity: 0.65 }),
@@ -541,6 +550,20 @@ export function worldUV(g) {
   return g;
 }
 export const merge = (list) => mergeGeometries(list.map((g) => (g.index ? g.toNonIndexed() : g)));
+// The weeks a whole mesh is there: from the first week any of its vertices arrives until the last of them has gone.
+// The shaders still decide pixel by pixel; this only lets the renderer skip meshes that would discard everything.
+export function tagWeeks(root) {
+  const list = [];
+  root.traverse((m) => {
+    if (!m.isMesh) return;
+    const a = m.geometry.attributes.aWeek, o = m.geometry.attributes.aOut;
+    let w0 = -Infinity, w1 = Infinity;
+    if (a) { w0 = Infinity; for (let i = 0; i < a.count; i++) if (a.array[i] < w0) w0 = a.array[i]; }
+    if (o) { let all = true, mx = 0; for (let i = 0; i < o.count; i++) { const v = o.array[i]; if (v <= 0.5) { all = false; break; } if (v > mx) mx = v; } if (all) w1 = mx; }
+    m.userData.w0 = w0; m.userData.w1 = w1; list.push(m);
+  });
+  return list;
+}
 export function addMesh(group, geo, sets, o = {}) {
   const m = new THREE.Mesh(geo, sets.main || sets.paper || sets.nd);
   m.userData.sets = sets; m.castShadow = o.shadow !== false && !!sets.main; m.receiveShadow = true;
@@ -851,10 +874,11 @@ const FACES = [
   { n: [0, 0, -1], c: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], s: 'all', d: 'nz' },
 ];
 function bucketsOf(parts, keyOf, finishes = false) {
-  const B = {};
-  const emit = (key, p, f, wk, out, nOff = 0) => {
-    const b = B[key] || (B[key] = { pos: [], nor: [], uv: [], wk: [], out: [], idx: [] });
+  const B = {}, tint = new THREE.Color();
+  const emit = (key, p, f, wk, out, nOff = 0, hex = null) => {
+    const b = B[key] || (B[key] = { pos: [], nor: [], uv: [], wk: [], out: [], idx: [], col: [] });
     const base = b.pos.length / 3;
+    if (hex != null) { tint.setHex(hex); for (let i = 0; i < 4; i++) b.col.push(tint.r, tint.g, tint.b); }
     for (const c of f.c) {
       const x = p.b[c[0] * 3] + f.n[0] * nOff;
       const y = p.b[1 + c[1] * 3] + f.n[1] * nOff;
@@ -873,7 +897,7 @@ function bucketsOf(parts, keyOf, finishes = false) {
       if (finishes && FINISH[k0] && (p.k === 'struct' || p.k === 'stair')) {
         emit(key, p, f, wk, (x) => finishWeek(k0, x) + BUILD + 0.02, 0); // the raw face stays until the finish has closed up over it
         emit(k0, p, f, (x) => finishWeek(k0, x), () => 0, 0.0025);
-      } else emit(key, p, f, wk, () => p.out || 0, 0);
+      } else emit(key, p, f, wk, () => p.out || 0, 0, key === 'matte' || key === 'soft' ? MATTE[k0] ?? SOFT[k0] : null);
     }
   }
   const out = {};
@@ -882,6 +906,7 @@ function bucketsOf(parts, keyOf, finishes = false) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2)); g.setAttribute('aWeek', new THREE.Float32BufferAttribute(b.wk, 1));
     g.setAttribute('aOut', new THREE.Float32BufferAttribute(b.out, 1)); g.setIndex(b.idx);
+    if (b.col.length) g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
     out[k] = g;
   }
   return out;
@@ -902,12 +927,12 @@ function propsGeo(x0, x1, z0, z1, yb, yt, wIn, out, stepX = 1.35) {
       // Base plate on floor slab
       const bp = new THREE.BoxGeometry(0.16, 0.014, 0.16); bp.translate(x, yb + 0.007, z); list.push(bp);
       // Outer lower telescopic tube
-      const c1 = new THREE.CylinderGeometry(0.034, 0.034, collarH, 8, 1, true); c1.translate(x, yb + 0.014 + collarH / 2, z); list.push(c1);
+      const c1 = new THREE.CylinderGeometry(0.034, 0.034, collarH, segs(8, 5), 1, true); c1.translate(x, yb + 0.014 + collarH / 2, z); list.push(c1);
       // Threaded collar nut & pin
-      const col = new THREE.CylinderGeometry(0.048, 0.048, 0.09, 8); col.translate(x, yb + 0.014 + collarH, z); list.push(col);
+      const col = new THREE.CylinderGeometry(0.048, 0.048, 0.09, segs(8, 5)); col.translate(x, yb + 0.014 + collarH, z); list.push(col);
       // Inner upper telescopic tube reaching up to U-head
       const remH = Math.max(0.1, hTot - collarH - 0.014);
-      const c2 = new THREE.CylinderGeometry(0.027, 0.027, remH, 8, 1, true); c2.translate(x, yb + 0.014 + collarH + remH / 2, z); list.push(c2);
+      const c2 = new THREE.CylinderGeometry(0.027, 0.027, remH, segs(8, 5), 1, true); c2.translate(x, yb + 0.014 + collarH + remH / 2, z); list.push(c2);
       // U-head fork plate cradling the H20 beam
       const uh = new THREE.BoxGeometry(0.16, 0.016, 0.14); uh.translate(x, yt - 0.228, z); list.push(uh);
     }
@@ -977,11 +1002,11 @@ function excavatorGeo(pose) {
     return g;
   };
   const cylZ = (k, r, len, x, y, z, seg = 20) => {
-    const g = new THREE.CylinderGeometry(r, r, len, seg);
+    const g = new THREE.CylinderGeometry(r, r, len, segs(seg, 8));
     g.rotateX(Math.PI / 2); g.translate(x, y, z); K[k].push(g);
   };
   const cylY = (k, r0, r1, len, x, y, z, seg = 20) => {
-    const g = new THREE.CylinderGeometry(r0, r1, len, seg);
+    const g = new THREE.CylinderGeometry(r0, r1, len, segs(seg, 8));
     g.translate(x, y + len / 2, z); K[k].push(g);
   };
   const seg = (k, a, b, w, h0, h1 = h0, x0 = 0, x1 = 0) => {
@@ -1001,9 +1026,9 @@ function excavatorGeo(pose) {
     worldUV(g);
     K[k].push(g);
   };
-  const rod = (k, a, b, r, segs = 12) => {
+  const rod = (k, a, b, r, sg = 12) => {
     const d = b.clone().sub(a), len = d.length();
-    const g = new THREE.CylinderGeometry(r, r, len, segs);
+    const g = new THREE.CylinderGeometry(r, r, len, segs(sg, 5));
     g.translate(0, len / 2, 0);
     g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), d.normalize()));
     g.translate(a.x, a.y, a.z);
@@ -1187,7 +1212,7 @@ function excavatorGeo(pose) {
     if (i >= 2 && i <= 5) seg('rubber', p0, p1, bw + 0.03, 0.025, 0.025); // outer wear strips
   }
   for (const z of [0.12 - bw / 2, 0.12 + bw / 2]) {
-    const g = new THREE.CylinderGeometry(0.64, 0.64, 0.045, 20, 1, false, 0, 8 * 0.34 + 0.36);
+    const g = new THREE.CylinderGeometry(0.64, 0.64, 0.045, segs(20, 10), 1, false, 0, 8 * 0.34 + 0.36);
     g.rotateX(Math.PI / 2); g.rotateZ(ang + Math.PI / 2); g.translate(wrist.x, wrist.y, z); K.dark.push(g);
   }
   const lip = ang + 8 * 0.34 + 0.02, tp = wrist.clone().add(V(Math.cos(lip) * 0.64, Math.sin(lip) * 0.64, 0));
@@ -1202,19 +1227,14 @@ function excavatorGeo(pose) {
 }
 
 // ---------------------------------------------------------------- trees and foliage
-export const FIG_GEO = (() => {
-  const g = new THREE.LatheGeometry([[0, 0], [0.12, 0], [0.14, 0.1], [0.15, 0.82], [0.19, 1.0], [0.21, 1.36], [0.19, 1.44], [0.07, 1.5], [0.07, 1.54], [0.1, 1.6], [0.1, 1.7], [0.06, 1.75], [0, 1.76]].map(([x, y]) => new THREE.Vector2(x, y)), 16);
-  g.scale(1, 1, 0.62); return g;
-})();
-export function workerGeo() {
-  return { body: new THREE.BufferGeometry(), vest: new THREE.BufferGeometry(), hat: new THREE.BufferGeometry(), head: new THREE.BufferGeometry() };
-}
-export function canopy(clusters, s0, s1) {
-  const list = [];
-  for (const [cx, cy, cz, rx, ry, rz, n] of clusters) for (let i = 0; i < n; i++) {
+// A canopy is a cloud of small faceted leaves. A lower level of detail takes fewer and larger ones (the same volume
+// of green), and a tree out on the site (`tree`) takes fewer still, as octahedra on a phone.
+export function canopy(clusters, s0, s1, tree = false) {
+  const list = [], k0 = tree ? QL.tree : QL.leaf, sz = tree ? Math.pow(1 / QL.tree, 0.3) : QL.leafS, oct = tree && QL.treeLow;
+  for (const [cx, cy, cz, rx, ry, rz, n0] of clusters) for (let i = 0, n = Math.max(5, Math.round(n0 * k0)); i < n; i++) {
     let x, y, z; do { x = rnd() * 2 - 1; y = rnd() * 2 - 1; z = rnd() * 2 - 1; } while (x * x + y * y + z * z > 1);
-    const k = 0.6 + 0.4 * Math.sqrt(rnd());
-    const g = new THREE.IcosahedronGeometry(s0 + rnd() * (s1 - s0), 0); g.scale(1, 0.55, 1); g.rotateX(rnd() * 3); g.rotateZ(rnd() * 3);
+    const k = 0.6 + 0.4 * Math.sqrt(rnd()), r = (s0 + rnd() * (s1 - s0)) * sz;
+    const g = oct ? new THREE.OctahedronGeometry(r * 1.12, 0) : new THREE.IcosahedronGeometry(r, 0); g.scale(1, 0.55, 1); g.rotateX(rnd() * 3); g.rotateZ(rnd() * 3);
     g.translate(cx + x * rx * k, cy + y * ry * k, cz + z * rz * k); list.push(g);
   }
   return merge(list);
@@ -1243,7 +1263,7 @@ export function propsAt(week) {
 }
 
 export function buildWorld(o) {
-  const { R, phone } = o;
+  const { R } = o;
   const group = new THREE.Group();
   const realOnly = (main) => ({ main, paper: null, nd: null });
 
@@ -1251,7 +1271,8 @@ export function buildWorld(o) {
   const parts = houseParts();
   for (const p of parts) p.weeks = partWeeks(p);
   const STRUCT = { conc: 'conc', floorL: 'conc', oak: 'conc', plaster: 'conc', gravel: 'conc', pave: 'conc', clad: 'conc', soffit: 'conc' };
-  const real = bucketsOf(parts, (k, p) => (p.k === 'land' ? k : (p.k === 'furn' || p.k === 'furnReal' ? k : (STRUCT[k] || k))), true);
+  const shared = (k) => (k in MATTE ? 'matte' : k in SOFT ? 'soft' : k);
+  const real = bucketsOf(parts, (k, p) => (p.k === 'land' ? k : (p.k === 'furn' || p.k === 'furnReal' ? shared(k) : (STRUCT[k] || k))), true);
   for (const k in real) addMesh(group, real[k], realOnly(R[k] || R.conc), { glass: k === 'glass' || k === 'cabGlass', shadow: k !== 'glass' && k !== 'cabGlass' && k !== 'steel' });
 
   // Separate drawing meshes by architectural hierarchy so Tile 06 is crisp and uncluttered
@@ -1284,8 +1305,8 @@ export function buildWorld(o) {
   addMesh(group, blg, realOnly(R.blinding), { shadow: false });
   const bars = [], caps = [];
   const bar = (x, z, w, outW) => {
-    const c = new THREE.CylinderGeometry(0.009, 0.009, 0.92, 6, 1, true); c.translate(x, -3.6 + 0.46, z); stamp(c, w, outW); bars.push(c);
-    const k = new THREE.CylinderGeometry(0.024, 0.018, 0.045, 8); k.translate(x, -3.6 + 0.92, z); stamp(k, w, outW); caps.push(k);
+    const c = new THREE.CylinderGeometry(0.009, 0.009, 0.92, segs(6, 4), 1, true); c.translate(x, -3.6 + 0.46, z); stamp(c, w, outW); bars.push(c);
+    const k = new THREE.CylinderGeometry(0.024, 0.018, 0.045, segs(8, 5)); k.translate(x, -3.6 + 0.92, z); stamp(k, w, outW); caps.push(k);
   };
   const fw = (x) => 3.26 + 2.45 * clamp((x - 3.1) / 15.8, 0, 1);
   const fOut = (x) => x > 18.0 ? 8.85 : 6.62 + 2.00 * clamp((x - 3.7) / 14.6, 0, 1);
@@ -1347,36 +1368,37 @@ export function buildWorld(o) {
     // Garden trees planted during fit-out (weeks 33 to 35), either side of the pool and below it
     ['olive', 24.6, -11.6, 33.2], ['olive', 25.4, 7.4, 33.6], ['round', 33.5, -3.0, 34.0], ['olive', 20.2, 7.2, 34.3],
   ]) trees.push(t);
-  const leafK = phone ? 0.55 : 1;
+  // Each tree is built where it stands and the trees are merged by material into two groves, west and east of the
+  // house, so the whole planting is a handful of draw calls and the grove behind the camera is culled as one.
+  const groves = { w: {}, e: {} };
   for (const [kind, x, z, wIn] of trees) {
-    const y = natural(x, z), t = new THREE.Group();
+    const y = natural(x, z) - 0.05, ry = rnd() * 6.28, B = groves[x < 2 ? 'w' : 'e'];
+    const put = (key, g, dy = 0) => { g.translate(0, dy, 0); g.rotateY(ry); g.translate(x, y, z); stamp(g, wIn); (B[key] || (B[key] = [])).push(g); };
     if (kind === 'cypress') {
       const h = 0.85 + rnd() * 0.35;
-      const c = canopy([[0, 0, 0, 0.72, 3.3 * h, 0.72, Math.round(420 * leafK)]], 0.11, 0.19); stamp(c, wIn); addMesh(t, c, realOnly(R.leafDark));
-      const tr = new THREE.CylinderGeometry(0.1, 0.15, 1.5, 8); tr.translate(0, 0.75, 0); stamp(tr, wIn); addMesh(t, tr, realOnly(R.bark));
-      t.children[0].position.y = 3.5 * h + 0.45;
+      put('leafDark', canopy([[0, 0, 0, 0.72, 3.3 * h, 0.72, 420]], 0.11, 0.19, true), 3.5 * h + 0.45);
+      put('bark', new THREE.CylinderGeometry(0.1, 0.15, 1.5, segs(8, 5)).translate(0, 0.75, 0).toNonIndexed());
     } else {
       const olive = kind === 'olive';
-      const tr = new THREE.CylinderGeometry(0.11, 0.22, 2.4, 8); tr.rotateZ(olive ? 0.16 : 0.04); tr.translate(0, 1.2, 0);
-      const br1 = new THREE.CylinderGeometry(0.05, 0.1, 1.6, 6); br1.rotateZ(-0.65); br1.translate(0.3, 2.35, 0);
-      const br2 = new THREE.CylinderGeometry(0.04, 0.09, 1.4, 6); br2.rotateZ(0.55); br2.rotateY(1.2); br2.translate(-0.25, 2.25, 0.2);
-      const tg = merge([tr, br1, br2]); stamp(tg, wIn); addMesh(t, tg, realOnly(R.bark));
+      const tr = new THREE.CylinderGeometry(0.11, 0.22, 2.4, segs(8, 5)); tr.rotateZ(olive ? 0.16 : 0.04); tr.translate(0, 1.2, 0);
+      const br1 = new THREE.CylinderGeometry(0.05, 0.1, 1.6, segs(6, 4)); br1.rotateZ(-0.65); br1.translate(0.3, 2.35, 0);
+      const br2 = new THREE.CylinderGeometry(0.04, 0.09, 1.4, segs(6, 4)); br2.rotateZ(0.55); br2.rotateY(1.2); br2.translate(-0.25, 2.25, 0.2);
+      put('bark', merge([tr, br1, br2]));
       const cl = olive
         ? [[-0.4, 0, 0, 1.7, 0.9, 1.5, 380], [0.9, 0.4, 0.3, 1.2, 0.72, 1.1, 220], [-0.2, 0.82, -0.4, 1.1, 0.62, 1.1, 180]]
         : [[0, 0, 0, 1.8, 1.6, 1.7, 500], [0.5, 0.85, 0.3, 1.2, 0.95, 1.1, 220]];
-      const c = canopy(cl.map((q) => [...q.slice(0, 6), Math.round(q[6] * leafK)]), olive ? 0.09 : 0.11, olive ? 0.17 : 0.20); stamp(c, wIn);
-      addMesh(t, c, realOnly(olive ? R.olive : R.leaf)); t.children[1].position.y = olive ? 3.0 : 3.6;
+      put(olive ? 'olive' : 'leaf', canopy(cl, olive ? 0.09 : 0.11, olive ? 0.17 : 0.20, true), olive ? 3.0 : 3.6);
     }
-    t.position.set(x, y - 0.05, z); t.rotation.y = rnd() * 6.28; group.add(t);
   }
+  for (const side in groves) for (const k in groves[side]) addMesh(group, merge(groves[side][k]), realOnly(R[k]));
   return group;
 }
 
 // ---------------------------------------------------------------- the land, as meshes
 function buildLand(o) {
-  const { T, phone } = o;
+  const { T } = o;
   const out = [];
-  const step = phone ? 0.4 : 0.2;
+  const step = QL.step;
   const X0 = -20, X1 = 40, Z0 = -26, Z1 = 20;
   const nx = Math.round((X1 - X0) / step), nz = Math.round((Z1 - Z0) / step);
   const terrainMat = makeTerrainMat(T);
@@ -1470,11 +1492,12 @@ function buildLand(o) {
   const nat = surface((i, j) => !quadPit(i, j), (k, x, z) => NAT[k] + ruts(x, z) * smooth(0.3, 1.5, PITH[k] - NAT[k]) * (1 - grassW(x, z)), landW,
     (x, y, z) => [grassW(x, z), 0, 0, 0]);
   const before = surface(quadPit, (k) => NAT[k], landW, (x, y, z) => [grassW(x, z), 0, 0, 0], (x) => digW(x));
-  out.push(landMesh(pitReal, terrainMat, true, false), landMesh(nat, terrainMat), landMesh(before, terrainMat));
+  // the open slope only receives shadows: its own are too soft to see, and it is the largest mesh on site
+  out.push(landMesh(pitReal, terrainMat, true, false), landMesh(nat, terrainMat, false, true, false), landMesh(before, terrainMat, false, true, false));
 
   // Spoil heap on the court (lowers smoothly into the court as its earth backfills the foundation hole)
   {
-    const hs = phone ? 0.25 : 0.15, n = Math.ceil(HEAP[2] * 2.2 / hs);
+    const hs = QL.heap, n = Math.ceil(HEAP[2] * 2.2 / hs);
     const g = new THREE.PlaneGeometry(HEAP[2] * 2.2, HEAP[2] * 2.2 / 1.25, n, Math.round(n / 1.25)); g.rotateX(-Math.PI / 2);
     const p = g.attributes.position, mix = [], natY = [];
     for (let i = 0; i < p.count; i++) {
@@ -1492,7 +1515,7 @@ function buildLand(o) {
 
   // Far land to the horizon
   {
-    const N = phone ? 120 : 180, E = 1800, warp = (u) => Math.sign(u) * Math.pow(Math.abs(u), 2.3) * E;
+    const N = QL.far, E = 1800, warp = (u) => Math.sign(u) * Math.pow(Math.abs(u), 2.3) * E;
     const xs = [], zs = [];
     for (let i = 0; i <= N; i++) { xs.push(12 + warp(i / N * 2 - 1)); zs.push(-3 + warp(i / N * 2 - 1)); }
     const pos = [], mix = [], idx = [];
@@ -1527,10 +1550,10 @@ function buildLand(o) {
   }
   return out;
 }
-function landMesh(g, mat, tint = false, draw = true) {
+function landMesh(g, mat, tint = false, draw = true, cast = true) {
   const m = new THREE.Mesh(g, mat || DM.land);
-  m.userData.sets = { main: mat, paper: draw ? (tint ? DM.landNew : DM.land) : null, nd: draw ? DM.ndLand : null };
-  m.receiveShadow = !!mat; m.castShadow = !!mat;
+  m.userData.sets = { main: mat, paper: draw ? DM.land : null, nd: draw ? (tint ? DM.ndEarth : DM.ndLand) : null };
+  m.receiveShadow = !!mat; m.castShadow = !!mat && cast;
   if (mat) m.customDepthMaterial = mat.userData.depthMat || DEPTH_WEEKLY;
   m.frustumCulled = false; return m;
 }
@@ -1555,7 +1578,7 @@ function makeTerrainMat(T) {
   };
   depthMat.customProgramCacheKey = () => 'terrain-depth';
 
-  const m = new THREE.MeshStandardMaterial({ map: T.soil, bumpMap: T.soilBump, bumpScale: 0.035, roughness: 0.95, metalness: 0, envMapIntensity: 0.14 });
+  const m = std({ map: T.soil, bumpMap: T.soilBump, bumpScale: 0.035, roughness: 0.95, metalness: 0, envMapIntensity: 0.14 });
   m.userData.depthMat = depthMat;
   m.onBeforeCompile = (s) => {
     WEEKLY(s);

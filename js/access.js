@@ -27,7 +27,7 @@
     ['Das Blatt', 0], ['Spatenstich', 6.0], ['Rohbau am Hang', 7.3], ['Gerüsttreppe', 9.8], ['Unter den Stützen', 12.4],
     ['Obergeschoss', 16.6], ['Wohngeschoss', 20.6], ['Poolgeschoss', 26.5], ['Übergabe', 30.6], ['Zurück zum Blatt', 35.0],
   ];
-  SEQ.jumpTo = (v) => { SEQ.setPlaying(false); SEQ.jump = true; scrollTo(0, Math.round(v * innerHeight)); };
+  SEQ.jumpTo = (v) => { SEQ.setPlaying(false); SEQ.jump = true; scrollTo(0, Math.round(v * (SEQ.VH || innerHeight))); }; // SEQ.VH: one screen height of scroll (main.js)
   $('chapters').innerHTML = SEQ.CHAPTERS.map(([n], i) => `<li><button type="button" data-i="${i}"><kbd>${(i + 1) % 10}</kbd>${n}</button></li>`).join('');
   $('chapters').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) SEQ.jumpTo(SEQ.CHAPTERS[+b.dataset.i][1]); });
 

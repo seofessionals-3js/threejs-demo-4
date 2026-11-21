@@ -8,18 +8,27 @@
 // until the house is drawing 06 again.
 //   ?v=12.5  jump to a scroll position in screen heights      ?still   skip the loader and the drawing, for stills
 //   ?offline  the page runs on a virtual clock that is stepped one frame at a time
+//   ?q=low|mid|high  force the device tier      ?dpr=1.5  pin the resolution (js/quality.js)
+//
+// What a frame costs. Nothing is rendered unless something moved: the scroll, the drawing of the sheet, the slices
+// of the site building itself. The resolution follows the frame time (the governor in js/quality.js), the shadow
+// map is only redrawn when the week moves, and a phone or tablet renders the site straight to the canvas.
 import * as THREE from 'three';
-import { makeTextures, makeMaterials, buildWorld, U, PROG, TILES, WEEKS, V, natural, propsAt, DOOR, DOOR0, STAIR, PAL, PAPER, FW } from './world.js';
+import { makeTextures, makeMaterials, buildWorld, setLevel, U, PROG, TILES, WEEKS, V, natural, propsAt, DOOR, DOOR0, STAIR, PAL, PAPER, FW } from './world.js';
 import { buildStage } from './stage.js';
 import { makePipe, aim } from './pipe.js';
+import { tier, low, high, governor, visible, isTouch } from './quality.js';
 
 const SEQ = window.SEQ, pad = SEQ.pad;
 const Q = new URLSearchParams(location.search);
 const STILL = Q.has('still'), OFFLINE = Q.has('offline');
 const calm = () => SEQ.prefs.calm; // the view option, or the system's reduced motion setting (js/access.js)
-const PHONE = innerWidth <= 700;
-const DPR = Math.min(+(Q.get('dpr') || devicePixelRatio || 1), 2);
-let DPR_REAL = PHONE ? DPR : Math.min(DPR, 1.5);
+// Desktop: the site goes through the composer (ambient occlusion, sun shafts) at up to 1.5 device pixels.
+// Phone and tablet: no post processing, so the site is one pass straight to the canvas with the canvas's own multisampling.
+const DIRECT = !high;
+setLevel(tier);
+document.documentElement.dataset.tier = tier;
+let DPR = 1, DPR_REAL = 1;
 const raf = () => new Promise((r) => requestAnimationFrame(r));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -30,9 +39,11 @@ const C = (h) => new THREE.Color(h);
 
 // ---------------------------------------------------------------- boot
 const canvas = document.getElementById('gl');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(DPR);
-renderer.setSize(innerWidth, innerHeight, false);
+// The size of the picture is the size of the canvas on the page (100vw by 100lvh), not of the window: on a phone the
+// window grows and shrinks as the URL bar slides, the canvas does not, so nothing is stretched or reallocated.
+const boxSize = () => [canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight];
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: DIRECT, stencil: false, powerPreference: 'high-performance' });
+renderer.setSize(...boxSize(), false);
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.04;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.shadowMap.autoUpdate = false;
 renderer.setClearColor(PAPER, 1);
@@ -61,7 +72,10 @@ const skyMat = new THREE.ShaderMaterial({
       float s = max(dot(d, uSun), 0.);
       c += uGlow * (pow(s, 5.) * .32 + pow(s, 64.) * .5) * smoothstep(-.1, .2, h);
       if (uEnv > .5) c = mix(uGround, c, smoothstep(-.06, .02, h));
-      gl_FragColor = vec4(c, 1.); }`,
+      gl_FragColor = vec4(c, 1.);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
 });
 const sky = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), skyMat);
 sky.scale.setScalar(2400); sky.renderOrder = -1; sky.frustumCulled = false;
@@ -72,11 +86,11 @@ const envScene = new THREE.Scene(); envScene.add(new THREE.Mesh(new THREE.Sphere
 skyMat.uniforms.uEnv.value = 1;
 const ENV = new THREE.PMREMGenerator(renderer).fromScene(envScene, 0.02).texture;
 skyMat.uniforms.uEnv.value = 0;
-const T = makeTextures(renderer, PHONE);
+const T = makeTextures(renderer);
 setP(0.48); await raf();
 const R = makeMaterials(T, ENV);
 const scene = new THREE.Scene();
-scene.add(buildWorld({ R, T, phone: PHONE }));
+scene.add(buildWorld({ R, T }));
 const stage = buildStage(R);
 scene.add(stage, sky);
 setP(0.62); await raf();
@@ -85,20 +99,39 @@ scene.fog = new THREE.Fog(SKY.am.hor.clone(), 160, 1400);
 const sun = new THREE.DirectionalLight(0xffe7cc, 3.2);
 const sunAt = V(11, -2, -2);
 sun.position.copy(sunAt).addScaledVector(SUN_AM, 140); sun.target.position.copy(sunAt);
-sun.castShadow = true; sun.shadow.mapSize.set(PHONE ? 2048 : 4096, PHONE ? 2048 : 4096);
+// One shadow map, two frames for it: the whole site while the walk is outside, and only the house and its garden
+// once it is inside, which makes the same map twice as sharp where it is looked at from a metre away.
+const SHADOW_PX = high ? 4096 : 2048;
+const SHADOW_BOX = { site: { at: V(11, -2, -2), r: 44 }, house: { at: V(16, 0, -2), r: 21.5 } };
+sun.castShadow = true; sun.shadow.mapSize.set(SHADOW_PX, SHADOW_PX);
 Object.assign(sun.shadow.camera, { left: -44, right: 44, top: 44, bottom: -44, near: 40, far: 260 });
 sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.04;
+let shadowBox = 'site', shadowKey = '', shadowDirty = true, shadowAt = 0;
+function setShadowBox(name) {
+  if (name === shadowBox) return;
+  shadowBox = name; const b = SHADOW_BOX[name], c = sun.shadow.camera;
+  sunAt.copy(b.at); sun.target.position.copy(sunAt);
+  c.left = -b.r; c.right = b.r; c.top = b.r; c.bottom = -b.r; c.updateProjectionMatrix();
+  sun.shadow.normalBias = Math.max(0.022, Math.min(0.04, 1.9 * 2 * b.r / SHADOW_PX));
+  shadowKey = '';
+}
 const hemi = new THREE.HemisphereLight(0xd2e0ee, 0x8b7a63, 0.88);
 // light thrown back up off the floors and the terrace, so ceilings and soffits read as lit rooms, not as dark lids
 const bounce = new THREE.DirectionalLight(0xffe9cf, 0.72);
 bounce.position.set(2, -10, 1); bounce.target.position.set(0, 0, 0);
 scene.add(sun, sun.target, hemi, bounce, bounce.target);
-const lamps = stage.userData.lights.map((l) => { const p = new THREE.PointLight(0xffc288, 0, 0, 2); p.position.copy(l.p); p.userData.k = l.k; p.userData.g = l.g; scene.add(p); return p; });
+// The lamps of the rooms. Every light in the scene is paid for by every pixel, so a phone or a tablet keeps a pool of
+// two or three and moves it to the rooms the walk is in (LAMP_AT: where the pool changes hands, in screen heights);
+// a desktop lights all ten.
+const LAMPS = stage.userData.lights, LAMP_G = ['up', 'kd', 'lv', 'pl'], LAMP_AT = [19.9, 22.4, 25.6];
+const POOL = high ? LAMPS.length : low ? 2 : 3;
+const lamps = Array.from({ length: POOL }, () => { const p = new THREE.PointLight(0xffc288, 0, 0, 2); scene.add(p); return p; });
+const lampSets = LAMP_G.map((g) => LAMPS.filter((l) => l.g === g).sort((a, b) => b.k - a.k).slice(0, POOL));
 U.real.value = 5.95;
 
 // ---------------------------------------------------------------- cameras
 const cam = new THREE.PerspectiveCamera(2, 1, 1, 2000);
-let W = innerWidth, H = innerHeight;
+let [W, H] = boxSize();
 // the walking lens opens up on tall screens, so a phone held upright still sees the room
 const eyeFov = () => (W / H < 0.8 ? 64 : W / H < 1.25 ? 56 : 50);
 let EYE_FOV = eyeFov();
@@ -290,12 +323,21 @@ const END = { out: [HAND, HAND + 1.7], unpour: [HAND + 1.7, HAND + 2.7], zoom: [
 let KW = toK(V(HANDOVER_B[0], HANDOVER_B[1], HANDOVER_B[2]), V(HANDOVER_B[3], HANDOVER_B[4], HANDOVER_B[5]), EYE_FOV);
 
 // ---------------------------------------------------------------- pipeline
-const pipe = makePipe(renderer, scene, cam, { ao: !PHONE, samples: 4 });
+const pipe = makePipe(renderer, scene, cam, { ao: high, samples: 4, direct: DIRECT, floatDepth: high });
 pipe.onAim = (c) => {
   const D = c.userData.D; scene.fog.near = D + 110; scene.fog.far = D + 1450;
   sky.position.copy(c.position);
 };
-pipe.setSize(W, H, DPR, DPR_REAL);
+// The resolution: a pixel budget that follows the frame time. The drawing and the canvas take the governed ratio,
+// the composer of the desktop site at most 1.5 device pixels.
+let lastKey = '';
+const gov = governor({
+  apply: (dpr) => {
+    DPR = dpr; DPR_REAL = DIRECT ? dpr : Math.min(dpr, 1.5);
+    renderer.setPixelRatio(DPR); renderer.setSize(W, H, false); pipe.setSize(W, H, DPR, DPR_REAL);
+    lastKey = '';
+  },
+});
 
 // ---------------------------------------------------------------- the sheet's layout
 const sheet = document.getElementById('sheet');
@@ -310,21 +352,25 @@ const measure = () => {
   REST = frames.map((f) => { const r = f.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
   // a tall tile (a tablet held upright) fits the drawing by its width instead, so the house is never cropped
   K0.h = Math.max(K0_H, K0_HALF_W * REST[0].h / REST[0].w);
+  pipe.setRest(REST, K0);
 };
 measure();
 
+let clockKey = '';
 function clock(week, show) {
+  const ck = (show ? 1 : 0) + ':' + week.toFixed(3);
+  if (ck === clockKey) return; clockKey = ck; // the schedule only moves with the week
   prog.classList.toggle('clock', show);
   const f = clamp(week / WEEKS, 0, 1);
-  nowEl.style.left = `calc(var(--lab) + (100% - var(--lab)) * ${f})`;
-  nowTag.textContent = 'Wo. ' + pad(clamp(Math.ceil(week - 1e-3), 0, WEEKS));
-  nowTag.style.transform = `translateX(${-50 - 50 * sm(0.9, 1, f)}%)`; // the tag stays on the sheet in the last weeks
-  PROG.forEach(([, a, b], i) => { dones[i].style.transform = `scaleX(${clamp((week - a) / (b - a), 0, 1)})`; });
+  nowEl.style.left = `calc(var(--lab) + (100% - var(--lab)) * ${f.toFixed(5)})`;
+  const tag = 'Wo. ' + pad(clamp(Math.ceil(week - 1e-3), 0, WEEKS));
+  if (nowTag.textContent !== tag) nowTag.textContent = tag;
+  nowTag.style.transform = `translateX(${(-50 - 50 * sm(0.9, 1, f)).toFixed(2)}%)`; // the tag stays on the sheet in the last weeks
+  PROG.forEach(([, a, b], i) => { const v = clamp((week - a) / (b - a), 0, 1).toFixed(4); if (dones[i]._v !== v) { dones[i]._v = v; dones[i].style.transform = `scaleX(${v})`; } });
 }
 
 // ---------------------------------------------------------------- light by the week
-let shadowKey = '';
-function lightFor(week) {
+function lightFor(week, v) {
   const pm = sm(27, 36, week);
   const dir = SUN_AM.clone().lerp(SUN_MID, sm(15.4, 17.4, week)).normalize().lerp(SUN_PM, pm).normalize();
   sun.position.copy(sunAt).addScaledVector(dir, 140);
@@ -335,10 +381,14 @@ function lightFor(week) {
   skyMat.uniforms.uHor.value.copy(SKY.am.hor).lerp(SKY.pm.hor, pm);
   skyMat.uniforms.uGlow.value.copy(SKY.am.glow).lerp(SKY.pm.glow, pm);
   scene.fog.color.copy(skyMat.uniforms.uHor.value);
-  for (const l of lamps) {
-    const g = l.userData.g;
-    const on = g === 'up' ? sm(31.6, 32.3, week) : g === 'kd' ? sm(33.4, 34.35, week) : g === 'lv' ? sm(35.3, 35.8, week) : sm(36.9, 37.5, week);
-    l.intensity = 7.5 * l.userData.k * on;
+  const lampOn = (g) => (g === 'up' ? sm(31.6, 32.3, week) : g === 'kd' ? sm(33.4, 34.35, week) : g === 'lv' ? sm(35.3, 35.8, week) : sm(36.9, 37.5, week));
+  if (high) lamps.forEach((p, i) => { p.position.copy(LAMPS[i].p); p.intensity = 7.5 * LAMPS[i].k * lampOn(LAMPS[i].g); });
+  else {
+    let gi = 0; while (gi < LAMP_AT.length && v >= LAMP_AT[gi]) gi++;
+    // the pool fades out before it changes hands and in again after, so no room goes dark in view
+    const f = (gi > 0 ? sm(LAMP_AT[gi - 1], LAMP_AT[gi - 1] + 0.3, v) : 1) * (gi < LAMP_AT.length ? 1 - sm(LAMP_AT[gi] - 0.3, LAMP_AT[gi], v) : 1);
+    const set = lampSets[gi], on = lampOn(LAMP_G[gi]) * f;
+    lamps.forEach((p, i) => { if (set[i]) { p.position.copy(set[i].p); p.intensity = 7.5 * set[i].k * on; } else p.intensity = 0; });
   }
   R.shade.emissiveIntensity = 2.6 * sm(31.6, 37.6, week);
   // each sliding door steps in off the line of the glass, then slides open behind its neighbour:
@@ -348,19 +398,34 @@ function lightFor(week) {
   d1.position.z = DOOR.zc - (DOOR.w - 0.03) * sm(FW(36.45), FW(36.9), week);
   d0.position.x = DOOR0.x - 0.11 * sm(37.3, 37.38, week);
   d0.position.z = DOOR0.zc - (DOOR0.w - 0.03) * sm(37.38, 37.6, week);
+  setShadowBox(v > 11.9 ? 'house' : 'site');
   const key = (Math.round(week * 25) / 25).toFixed(2);
-  if (key !== shadowKey) { shadowKey = key; renderer.shadowMap.needsUpdate = true; }
+  if (key !== shadowKey) { shadowKey = key; shadowDirty = true; }
+}
+// The shadow map is redrawn when the week has moved. While the scroll is moving a phone redraws it at most ten
+// times a second (a part that is being built lags its shadow by a few frames), and always once more at rest.
+const SHADOW_MS = high ? 0 : low ? 95 : 45;
+function shadowTick(now, force) {
+  if (!shadowDirty) return false;
+  if (!force && now - shadowAt < SHADOW_MS) return true; // still owed: the caller asks for another frame
+  shadowDirty = false; shadowAt = now; renderer.shadowMap.needsUpdate = true;
+  return false;
 }
 
 // ---------------------------------------------------------------- warm up behind the loader
+// every shader the scroll will need is compiled here, so no phase of the build starts with a hitch
 const screenRect = () => ({ x: 0, y: 0, w: W, h: H });
-pipe.draw(TILES.map((t, i) => ({ rect: REST[i], cam: K0, now: t.w1, newFrom: t.w0 })));
+const renderReal = (t, week) => (DIRECT ? pipe.realDirect(t, week) : pipe.real(t, week));
+pipe.draw(TILES.map((t, i) => ({ rect: REST[i], cam: K0, now: t.w1 })), 6);
+pipe.draw([{ rect: screenRect(), cam: K0, now: 6, live: true }]);
 setP(0.78); await raf();
-for (const w of [38, 18, 5.95]) {
-  U.real.value = w; lightFor(w); renderer.shadowMap.needsUpdate = true;
-  pipe.real({ cam: w === 38 ? KW : K3, rect: screenRect() });
+for (const [w, v] of [[38, 30.6], [18, 12.2], [5.95, 6]]) {
+  U.real.value = w; lightFor(w, v); renderer.shadowMap.needsUpdate = true;
+  renderReal({ cam: w === 38 ? KW : K3, rect: screenRect() }, w);
 }
-pipe.real({ cam: K1, rect: screenRect() });
+renderReal({ cam: K1, rect: screenRect() }, 5.95);
+pipe.show({ rect0: screenRect(), now: 99, glow: 0, pour: 2, realOn: true, realOnly: false, mpp: 0.02, time: 0 });
+gov.hold(2500);
 setP(0.94); await raf();
 await document.fonts.ready;
 setP(1);
@@ -395,10 +460,13 @@ if (STILL || calm()) {
 if (OFFLINE) { SEQ.real = true; SEQ.progress = 0; SEQ.shown = 0; }
 
 // ---------------------------------------------------------------- scroll
+// One screen height of scroll is the height of the canvas (VH), and the track is laid out in it, so the URL bar
+// of a phone sliding in and out does not move the walk.
 const track = document.getElementById('track');
-track.style.height = (END.total + 1) * 100 + 'vh';
-if (Q.has('v')) { history.scrollRestoration = 'manual'; scrollTo(0, +Q.get('v') * innerHeight); }
-let sv = scrollY / innerHeight, last = OFFLINE ? 0 : performance.now();
+let VH = H; SEQ.VH = VH;
+track.style.height = (END.total + 1) * VH + 'px';
+if (Q.has('v')) { history.scrollRestoration = 'manual'; scrollTo(0, +Q.get('v') * VH); }
+let sv = scrollY / VH, last = OFFLINE ? 0 : performance.now();
 
 // annotations inside drawing 01, positioned cleanly with a paper halo so lines never strike through text
 const NOTES = [
@@ -412,10 +480,13 @@ const NOTES = [
 notes.innerHTML = NOTES.map((n) => `<g><circle r="2.2" fill="${PAL.ink}"/><line stroke="${PAL.ink}" stroke-width=".9"/><rect class="nbg" rx="1" height="14"/><text ${n.acc ? 'class="acc"' : ''}>${n.t}</text></g>`).join('');
 const noteEls = [...notes.children];
 NOTES.forEach((n, i) => { n.w = noteEls[i].children[3].getComputedTextLength() + 8; });
+const noteV = new THREE.Vector3();
+let noteA = -1;
 function drawNotes(alpha) {
-  notes.style.opacity = alpha;
-  if (alpha <= 0.001) return;
-  const v = new THREE.Vector3();
+  const a = alpha <= 0.001 ? 0 : +alpha.toFixed(3);
+  if (a !== noteA) { noteA = a; notes.style.opacity = a; notes.style.visibility = a ? 'visible' : 'hidden'; }
+  if (!a) return;
+  const v = noteV;
   NOTES.forEach((n, i) => {
     v.copy(n.p).project(cam);
     const x = (v.x + 1) / 2 * W, y = (1 - v.y) / 2 * H, g = noteEls[i];
@@ -468,19 +539,22 @@ function chipFor(v, week, pour, diving) {
 }
 
 // ---------------------------------------------------------------- the frame
-let lastKey = '', playY = 0;
-const Q_ = { n: 0, t: 0, at: 0 };
+// A frame has three parts. What always runs: the clock of the hero, the eased scroll, and the arithmetic that turns
+// the scroll into a camera, a week and a layout. Then a key of everything the picture depends on: if it is the key
+// of the last frame, nothing is written to the page and nothing is rendered. Only then the page and the picture.
+let playY = 0, owed = false;
 function frame(now) {
   if (!OFFLINE) requestAnimationFrame(frame);
   heroTick(now);
   if (now - last > 120 && S.drawT > 0) (window.__hitches || (window.__hitches = [])).push([Math.round(now - last), +sv.toFixed(2), +S.now.toFixed(1)]);
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (!visible()) { gov.frame(now, false); return; } // a hidden tab or frame draws nothing
   // Play: the page scrolls itself at a steady pace and stops on the last sheet
   if (SEQ.playing) {
-    if (scrollY / innerHeight >= END.total - 0.002) SEQ.setPlaying(false);
-    else { playY = Math.max(playY, scrollY) + dt * SEQ.speed * innerHeight; scrollTo(0, playY); }
+    if (scrollY / VH >= END.total - 0.002 || scrollY >= (END.total + 1) * VH - innerHeight - 2) SEQ.setPlaying(false);
+    else { playY = Math.max(playY, scrollY) + dt * SEQ.speed * VH; scrollTo(0, playY); }
   } else playY = 0;
-  const target = clamp(scrollY / innerHeight, 0, END.total);
+  const target = clamp(scrollY / VH, 0, END.total);
   // a chapter jump is a cut, and with reduced motion the camera follows the scroll without easing
   const cut = STILL || calm() || SEQ.jump; SEQ.jump = false;
   sv = cut ? target : sv + (target - sv) * (1 - Math.exp(-dt * 5.5));
@@ -493,11 +567,12 @@ function frame(now) {
     const t = (now - S.drawT) / 1000 / DRAW_S * (ps > 0.01 ? 3 : 1);
     if (ps > 0.01) S.drawT -= dt * 1000 * 2;
     S.now = nowAt(t);
-    if (t >= 1) { S.drawn = true; S.now = WEEKS; hint.classList.add('on'); window.__heroDone = true; }
+    if (t >= 1) { S.drawn = true; S.now = WEEKS; window.__heroDone = true; }
     caps.forEach((c, i) => c.classList.toggle('done', S.now >= TILES[i].w1));
   }
   if (STILL) window.__heroDone = true;
 
+  // ---- the scroll as a camera, a week and a layout (arithmetic only)
   const ending = sv >= END.out[0];
   const live = ending ? 5 : 0;
   let z, c, pour, l = 0, k, week, realOnly, rectL;
@@ -526,31 +601,41 @@ function frame(now) {
     z = 1 - ease(lz); c = lz > 0 ? 1 : 0;
     if (lz > 0) k = K0;
   }
-  U.real.value = week; lightFor(week);
+  const diving = z > 0.02 && !ending;
+  // while the site is building itself the slices drift on their own, so those frames are always drawn
+  const building = !calm() && !STILL && (ending ? sv > END.unpour[0] && sv < END.zoom[0] + 0.2 : pour > -1.3 && pour < 8.35 && c > 0);
+  const key = [W, H, sv.toFixed(4), S.now.toFixed(3), U.fx.value, building ? now : 0].join(',');
+  const active = key !== lastKey || owed;
+  gov.frame(now, active);
+  if (!active) return;
+  lastKey = key;
 
+  // ---- the page
+  U.real.value = week; lightFor(week, sv);
   const s = Math.exp(Math.log(sC) * z);
   const zr = (r) => ({ x: F.x + (r.x - F.x) * s, y: F.y + (r.y - F.y) * s, w: r.w * s, h: r.h * s });
-  sheet.style.transform = z > 0 ? `translate(${F.x * (1 - s)}px, ${F.y * (1 - s)}px) scale(${s})` : 'none';
-  sheet.style.opacity = 1 - sm(0.5, 0.92, z);
-  sheet.inert = z > 0.9; // off screen: out of the tab order and the reading order too
+  set(sheet.style, 'transform', z > 0 ? `translate(${F.x * (1 - s)}px, ${F.y * (1 - s)}px) scale(${s})` : 'none');
+  const side = sm(0.5, 0.92, z); // the sheet and the five other drawings go back into the paper as the page dives in
+  set(sheet.style, 'opacity', 1 - side);
+  if (sheet.inert !== z > 0.9) sheet.inert = z > 0.9; // off screen: out of the tab order and the reading order too
   const rects = REST.map(zr);
   const cover = rects[live];
   if (!ending) rectL = c > 0 ? { x: lerp(cover.x, 0, c), y: lerp(cover.y, 0, c), w: lerp(cover.w, W, c), h: lerp(cover.h, H, c) } : cover;
   else rectL = sv < END.zoom[0] ? screenRect() : cover;
   rects[live] = rectL;
 
-  const diving = z > 0.02 && !ending;
   document.body.classList.toggle('closing', ending && sv > END.zoom[0] + 0.45);
   const onSite = (pour > -0.5 || sv > DIVE) && !(ending && sv > END.unpour[0] + 0.3);
   if (onSite) {
     if (!prog.classList.contains('hud')) { prog.classList.add('hud'); placeHud(); }
-    prog.style.opacity = ending ? 1 - sm(END.unpour[0], END.unpour[0] + 0.3, sv) : clamp((pour + 0.5) / 0.8, 0, 1);
+    set(prog.style, 'opacity', ending ? 1 - sm(END.unpour[0], END.unpour[0] + 0.3, sv) : clamp((pour + 0.5) / 0.8, 0, 1));
     clock(sv > DIVE ? week : clamp(pour, 0, 5.95), true);
   } else {
     if (prog.classList.contains('hud')) { prog.classList.remove('hud'); SEQ.place('dock'); }
-    if (ending) { SEQ.place('dock'); prog.style.opacity = sm(END.zoom[0] + 0.4, END.zoom[1], sv); clock(WEEKS, true); }
-    else { prog.style.opacity = !diving ? 1 : 1 - clamp(z * 3, 0, 1); clock(S.now, S.drawT > 0 && !diving); }
+    if (ending) { if (!placedEnd) { SEQ.place('dock'); placedEnd = true; } set(prog.style, 'opacity', sm(END.zoom[0] + 0.4, END.zoom[1], sv)); clock(WEEKS, true); }
+    else { set(prog.style, 'opacity', !diving ? 1 : 1 - clamp(z * 3, 0, 1)); clock(S.now, S.drawT > 0 && !diving); }
   }
+  if (!ending || onSite) placedEnd = false;
   const site = onSite && (!ending || sv < END.unpour[0] + 0.5);
   bar.classList.toggle('over', site); document.body.classList.toggle('site', site);
   const chipTxt = chipFor(sv, week, pour, diving);
@@ -558,19 +643,18 @@ function frame(now) {
   chip.classList.toggle('on', !!chipTxt);
   hint.classList.toggle('on', S.drawn && sv < 0.3);
 
-  // while the site is building itself the slices drift on their own, so those frames are always drawn
-  const building = !calm() && !STILL && (ending ? sv > END.unpour[0] && sv < END.zoom[0] + 0.2 : pour > -1.3 && pour < 8.35 && c > 0);
-  const key = [W, H, sv.toFixed(4), S.now.toFixed(3), U.fx.value, building ? now : 0].join(',');
+  // ---- the picture
   aim(cam, k, rectL, W, H);
   drawNotes(ending ? 0 : c * (1 - clamp((pour + 0.8) / 1.2, 0, 1)));
-  if (key === lastKey) return;
-  lastKey = key;
   const realOn = ending ? sv < END.zoom[0] : pour > -0.8;
+  // the live drawing has left its place on the sheet (or its camera has): it is drawn fresh; at rest it is a cell like the others
+  const moved = z > 1e-4 || c > 0 || (ending && sv < END.zoom[1] - 1e-4);
+  owed = false;
   if (!realOnly) {
     const allTiles = !(ending ? sv < END.zoom[0] : c > 0.02);
-    pipe.draw(TILES.map((t, i) => ({
-      rect: rects[i], cam: i === live ? k : K0, hidden: i !== live && !allTiles,
-      now: diving || ending ? t.w1 : Math.min(S.now, t.w1), newFrom: t.w0,
+    owed = pipe.draw(TILES.map((t, i) => ({
+      rect: rects[i], cam: i === live ? k : K0, hidden: i !== live && !allTiles, live: i === live && moved,
+      now: diving || ending ? t.w1 : Math.min(S.now, t.w1),
     })));
   }
   if (pipe.shafts) {
@@ -585,14 +669,23 @@ function frame(now) {
       if (!u.tShadow.value) pipe.shafts.enabled = false;
     }
   }
-  if (realOn) pipe.real({ cam: k, rect: rectL });
-  pipe.show({ rect0: rectL, now: diving || ending ? 99 : S.now, glow: diving || ending ? 0 : 1, pour, realOn, realOnly, mpp: 2 * k.h / (rectL.h * DPR), time: building ? now / 1000 : 0 });
+  if (realOn) {
+    // at rest the shadow map catches up at once; while the scroll moves a phone lets it lag a few frames
+    if (shadowTick(now, Math.abs(target - sv) < 2e-3 || cut)) owed = true;
+    renderReal({ cam: k, rect: rectL }, week);
+  }
+  if (!(DIRECT && realOnly)) pipe.show({ rect0: rectL, now: diving || ending ? 99 : S.now, glow: diving || ending ? 0 : 1, pour, realOn, realOnly, side: moved ? side : 0, mpp: 2 * k.h / (rectL.h * DPR), time: building ? now / 1000 : 0 });
 }
+let placedEnd = false;
+// write a style only when it changes
+const styleMemo = new WeakMap();
+const set = (st, prop, v) => { let m = styleMemo.get(st); if (!m) styleMemo.set(st, (m = {})); v = String(v); if (m[prop] !== v) { m[prop] = v; st[prop] = v; } };
 function placeHud() {
+  // the schedule sits at the bottom of the part of the screen that is always visible (the sheet is 100svh tall)
   const ph = SEQ.phone(), w = ph ? W - 28 : Math.min(560, W - 48);
   prog.style.transform = 'none'; prog.style.width = w + 'px';
   prog.style.left = (ph ? 14 : 24) + 'px';
-  prog.style.top = H - prog.querySelector('.rows').offsetHeight - (ph ? 20 : 26) + 'px';
+  prog.style.top = (sheet.offsetHeight || H) - prog.querySelector('.rows').offsetHeight - (ph ? 20 : 26) + 'px';
 }
 if (!OFFLINE) requestAnimationFrame(frame);
 const animStart = new WeakMap();
@@ -602,13 +695,21 @@ window.__frame = (vt) => {
 };
 
 const noteWidths = () => NOTES.forEach((n, i) => { n.w = noteEls[i].children[3].getComputedTextLength() + 8; });
-SEQ.onPrefs = () => { noteWidths(); measure(); if (prog.classList.contains('hud')) placeHud(); else SEQ.place(SEQ.docked ? 'dock' : 'loader'); lastKey = ''; };
-addEventListener('resize', () => {
-  W = innerWidth; H = innerHeight;
+SEQ.onPrefs = () => { noteWidths(); measure(); clockKey = ''; if (prog.classList.contains('hud')) placeHud(); else SEQ.place(SEQ.docked ? 'dock' : 'loader'); lastKey = ''; };
+// A real resize: the canvas box changed (a window resize, a turned phone), not just the URL bar of a phone.
+let resizeT = 0;
+function resized() {
+  const [w, h] = boxSize();
+  if (w === W && h === H) { if (prog.classList.contains('hud')) placeHud(); return; }
+  W = w; H = h; VH = h; SEQ.VH = VH;
+  const at = sv; track.style.height = (END.total + 1) * VH + 'px'; scrollTo(0, at * VH); // stay where the walk was
   EYE_FOV = eyeFov(); K1.h = Math.max(8.9, 7.7 * H / W);
   K3 = toK(EDGE[0], EDGE[1], EYE_FOV); KW = toK(V(HANDOVER_B[0], HANDOVER_B[1], HANDOVER_B[2]), V(HANDOVER_B[3], HANDOVER_B[4], HANDOVER_B[5]), EYE_FOV);
-  renderer.setSize(W, H, false); pipe.setSize(W, H, DPR, DPR_REAL);
-  measure(); if (prog.classList.contains('hud')) placeHud(); else SEQ.place(SEQ.docked ? 'dock' : 'loader'); lastKey = '';
-});
-window.__seq = { pipe, cam, scene, U, S, renderer, END, K0, walkAt, weekAt, lightFor, get sv() { return sv; } };
+  gov.refit(); gov.hold(1200); // applies the new size to the canvas and the targets
+  measure(); clockKey = ''; if (prog.classList.contains('hud')) placeHud(); else SEQ.place(SEQ.docked ? 'dock' : 'loader'); lastKey = '';
+}
+addEventListener('resize', () => { clearTimeout(resizeT); if (isTouch) resizeT = setTimeout(resized, 120); else resized(); }, { passive: true });
+addEventListener('pageshow', () => { lastKey = ''; });
+document.addEventListener('visibilitychange', () => { lastKey = ''; });
+window.__seq = { pipe, cam, scene, U, S, renderer, END, K0, walkAt, weekAt, lightFor, gov, tier, get sv() { return sv; } };
 window.__ready = true; window.__readyAt = performance.now();
