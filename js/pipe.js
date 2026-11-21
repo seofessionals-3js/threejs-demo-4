@@ -88,6 +88,7 @@ const DISPLAY_FS = `
     vec3 base = bg ? uPaper : pap.rgb;
     // The plan code: the line pass says what a part is and in which drawing it was first built. A drawing fills what
     // is new in its own weeks, what stood before, temporary works and earthworks each in their own tone.
+    vec3 lineCol = uInk;
     if (!bg) {
       float code = floor(ndAt(q).a * 31. + .5), kind = floor(code / 8. + .01), phase = code - kind * 8.;
       bool fresh = phase > float(ti) + .5;
@@ -97,6 +98,8 @@ const DISPLAY_FS = `
       else if (kind > .5) fill = fresh ? uTintEarth : uPaper;
       float k = clamp((uPaper.g - base.g) / max(uPaper.g - uInk.g, 1e-3), -.12, 1.);   // how much ink the paper pass laid down
       base = mix(fill, uInk, k);
+      // the plan code in the lines too: this phase's own work in Neubau red, what stood before in Bestand grey
+      if (kind > 2.5) lineCol = fresh ? vec3(.831, .227, .165) : vec3(.40, .41, .43);
     }
     float e = 0., wl = week;
     vec2 o = vec2(1., 0.), g = vec2(0., 1.);
@@ -136,8 +139,8 @@ const DISPLAY_FS = `
         e = max(e, ee);
       }
     }
-    vec3 col = mix(base, uInk, clamp(e, 0., 0.92));
-    // fresh ink: what was drawn in the last weeks glows green, then cools to ink
+    vec3 col = mix(base, lineCol, clamp(e, 0., 0.92));
+    // fresh ink: what was drawn in the last weeks glows in Neubau red, then cools to its line colour
     float wk = e > .01 ? wl : week;
     if (uGlow > 0. && (e > .01 || base != uPaper)) {
       float gl = 1. - clamp((uNow - wk) / .9, 0., 1.);
@@ -147,8 +150,8 @@ const DISPLAY_FS = `
     if (!LV && uSide > 0.) col = mix(col, uPaper, uSide);
     // The world builds itself behind the same weeks, and the drawing stays readable while it does. The site appears
     // as horizontal slices cut through the real ground and walls. They drift and breathe on their own, widen until
-    // they meet, and carry a lime edge while they grow. Between them the paper sinks into a green shade in which
-    // the ink glows; ahead of the front the ink turns green and points land on the paper.
+    // they meet, and carry a Neubau-red edge while they grow. Between them the paper sinks into a graphite shade in which
+    // the ink glows; ahead of the front the ink turns red and points land on the paper.
     // (With BLEND the site is already on the canvas underneath: col then holds everything but the site, and tr how
     // much of the site shows through, which the blend function multiplies the canvas by.)
     float tr = 0.;
@@ -188,10 +191,10 @@ const DISPLAY_FS = `
           col = mix(col, uLime * .05 * (1. - t) * .75, m);
           tr = m * (1. - rim * .82) * (1. - spark);
         #else
-          col = mix(col, mix(real, real * vec3(.93, 1.05, .86) + uLime * .05, (1. - t) * .75), m);
+          col = mix(col, mix(real, real * vec3(.97, .95, .93) + uLime * .05, (1. - t) * .75), m);
         #endif
         col = mix(col, uLime, rim * .82);
-        col = mix(col, vec3(.96, 1., .84), spark);
+        col = mix(col, vec3(1., .93, .9), spark);
       }
     }
     #ifdef BLEND

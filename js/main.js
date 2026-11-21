@@ -53,10 +53,10 @@ setP(0.34); await raf();
 // The glass looks east. Morning sun comes over the lake from the north-east, swings south for the weeks under the props,
 // and ends low in the south-east so the rooms glow at handover.
 const SUN_AM = V(0.62, 0.42, -0.66).normalize(), SUN_MID = V(0.50, 0.30, 0.81).normalize(), SUN_PM = V(0.74, 0.25, 0.62).normalize();
-const SKY = { am: { zen: C('#4274b0'), hor: C('#e2dbca'), glow: C('#ffcf94') }, pm: { zen: C('#4a6fa0'), hor: C('#edd4ae'), glow: C('#ffab5c') } };
+const SKY = { am: { zen: C('#b9d2e2'), hor: C('#dfe9ef'), glow: C('#ffe9c8') }, pm: { zen: C('#b0c3d3'), hor: C('#ecdfc9'), glow: C('#ffd3a0') } };
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, fog: false,
-  uniforms: { uSun: { value: SUN_AM.clone() }, uZen: { value: SKY.am.zen.clone() }, uHor: { value: SKY.am.hor.clone() }, uGlow: { value: SKY.am.glow.clone() }, uGround: { value: C('#746654') }, uEnv: { value: 0 } },
+  uniforms: { uSun: { value: SUN_AM.clone() }, uZen: { value: SKY.am.zen.clone() }, uHor: { value: SKY.am.hor.clone() }, uGlow: { value: SKY.am.glow.clone() }, uGround: { value: C('#8b8a82') }, uEnv: { value: 0 } },
   vertexShader: 'varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
   fragmentShader: `uniform vec3 uSun, uZen, uHor, uGlow, uGround; uniform float uEnv; varying vec3 vD;
     void main(){ vec3 d = normalize(vD); float h = d.y;
@@ -115,7 +115,7 @@ function setShadowBox(name) {
   sun.shadow.normalBias = Math.max(0.022, Math.min(0.04, 1.9 * 2 * b.r / SHADOW_PX));
   shadowKey = '';
 }
-const hemi = new THREE.HemisphereLight(0xd2e0ee, 0x8b7a63, 0.88);
+const hemi = new THREE.HemisphereLight(0xdce6ee, 0x756a5a, 0.88);
 // light thrown back up off the floors and the terrace, so ceilings and soffits read as lit rooms, not as dark lids
 const bounce = new THREE.DirectionalLight(0xffe9cf, 0.72);
 bounce.position.set(2, -10, 1); bounce.target.position.set(0, 0, 0);
@@ -375,7 +375,12 @@ function lightFor(week, v) {
   const dir = SUN_AM.clone().lerp(SUN_MID, sm(15.4, 17.4, week)).normalize().lerp(SUN_PM, pm).normalize();
   sun.position.copy(sunAt).addScaledVector(dir, 140);
   sun.color.set(0xffe7cc).lerp(C('#ffc68c'), pm); sun.intensity = lerp(3.15, 3.55, pm);
-  hemi.intensity = lerp(0.88, 0.72, pm);
+  // inside the house the fill light steps back, so walls and ceilings get a gradient (lit by the window, darker in the
+  // depth of the room) instead of one even beige; the floor still bounces light up under the soffits
+  const inn = sm(19, 21, v) * (1 - sm(27.6, 28.4, v));
+  hemi.intensity = lerp(0.88, 0.72, pm) * (1 - 0.42 * inn);
+  bounce.intensity = 0.72 * (1 - 0.35 * inn);
+  renderer.toneMappingExposure = 1.04 - 0.1 * inn;
   skyMat.uniforms.uSun.value.copy(dir);
   skyMat.uniforms.uZen.value.copy(SKY.am.zen).lerp(SKY.pm.zen, pm);
   skyMat.uniforms.uHor.value.copy(SKY.am.hor).lerp(SKY.pm.hor, pm);

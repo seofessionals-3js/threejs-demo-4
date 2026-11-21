@@ -6,7 +6,7 @@
 <title>Projekt Steininger // Blatt A-901</title>
 <meta name="description" content="Projekt Steininger: achtunddreißig Wochen Bauzeit in einem Scroll. Ein begehbarer Bau-Zeitraffer in three.js für ein Travertinhaus am Hang über dem See.">
 <meta name="author" content="Micha Schwan">
-<meta name="theme-color" content="#f1f0e6">
+<meta name="theme-color" content="#f5f4ef">
 <link rel="preload" href="fonts/BBHBogle-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/Arimo-VariableFont_wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -16,14 +16,19 @@
   @font-face { font-family: 'BBH Bogle'; src: url('fonts/BBHBogle-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
   @font-face { font-family: 'Arimo'; src: url('fonts/Arimo-VariableFont_wght.woff2') format('woff2'); font-weight: 400 700; font-style: normal; font-display: swap; }
   :root {
-    --paper: #f1f0e6;
-    --ink: #10241a;      /* deep forest: text, lines, every dark overlay */
-    --leaf: #5fa512;     /* the green of fresh ink on paper */
-    --lime: #c4f03e;     /* the light on the dark overlays */
-    --leaf-ink: #3d7607; /* the same green, dark enough to be read as small text on paper */
-    --deep: 11, 26, 18;  /* the glass of the overlays on site */
-    --ink-rgb: 16, 36, 26;
-    --paper-rgb: 241, 240, 230;
+    --paper: #f5f4ef;    /* Planweiß */
+    --paper-2: #e9e8e1;
+    --ink: #17191c;      /* Strich: Schwarz der Norm, nie reines Schwarz */
+    --leaf: #d43a2a;     /* Neubau-Rot: DER Akzent (Name der Variable stammt aus der alten Fassung) */
+    --lime: #ee5a48;     /* Neubau-Rot auf dunklem Glas */
+    --leaf-ink: #b52f20; /* Neubau-Rot dunkel genug für kleinen Text auf Papier */
+    --ab: #f0c21a;       /* Gelb nur mit Planbedeutung: Aushub, Provisorium, in Arbeit */
+    --ab-tint: #f8e9a6;
+    --bestand: #9b9d9f;  /* Grau: Bestand, schon Gebautes */
+    --bestand-tint: #dddcd7;
+    --deep: 23, 25, 28;  /* Graphitglas der Einblendungen auf der Baustelle */
+    --ink-rgb: 23, 25, 28;
+    --paper-rgb: 245, 244, 239;
     --gx: 24px;
     --label: 'Arimo', 'Helvetica Neue', Arial, sans-serif;
     --display: 'BBH Bogle', 'Arimo', 'Arial Black', sans-serif;
@@ -128,7 +133,7 @@
   body.large .panel ol button { font-size: 13px; }
   body.large .sub2 { font-size: 13.5px; }
   /* View option: higher contrast. Solid overlays, full strength text, heavier lines. */
-  body.contrast { --ink: #06140d; --ink-rgb: 6, 20, 13; --leaf-ink: #2c5903; --deep: 4, 14, 9; }
+  body.contrast { --ink: #0c0d0f; --ink-rgb: 12, 13, 15; --leaf-ink: #8f2418; --deep: 10, 11, 13; }
   body.contrast .sub, body.contrast .sheet-foot, body.contrast figcaption .wk, body.contrast .sub2 { color: var(--ink); }
   body.contrast .frame { border-color: var(--ink); border-width: 2px; }
   body.contrast .chip, body.contrast #prog.hud .rowsbg, body.contrast .panel { background: rgb(var(--deep)); backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -279,7 +284,7 @@
   #prog .done { position: absolute; inset: 0; background: var(--leaf); transform-origin: 0 0; transform: scaleX(0); }
   #prog .now {
     position: absolute; top: -6px; bottom: -4px; width: 1.5px;
-    background: var(--leaf); opacity: 0; transition: opacity .35s;
+    background: var(--ab); opacity: 0; transition: opacity .35s;
   }
   #prog .now b {
     position: absolute; bottom: 100%; left: 0; transform: translateX(-50%);
@@ -289,13 +294,14 @@
   #prog.clock .now { opacity: 1; }
   #prog .foot { display: flex; justify-content: space-between; margin-top: 10px; opacity: .75; transition: opacity .35s; }
   #prog.docked .foot { opacity: 0; }
-  /* on site the schedule is a dark green instrument: lime bars on forest glass */
+  /* on site the schedule is a graphite instrument: Neubau-red bars on graphite glass, yellow for the week in progress */
   #prog.hud { color: var(--paper); --lab: 132px !important; }
   #prog.hud .row { height: 11px; }
   #prog.hud .trk { border-top-color: rgba(var(--paper-rgb), .22); }
   #prog.hud .plan { background: rgba(var(--paper-rgb), .2); }
-  #prog.hud .done, #prog.hud .now { background: var(--lime); }
-  #prog.hud .now b { background: var(--lime); color: var(--ink); }
+  #prog.hud .done { background: var(--lime); }
+  #prog.hud .now { background: var(--ab); }
+  #prog.hud .now b { background: var(--ab); color: var(--ink); }
   @media (min-width: 701px) { #prog.hud { font-size: 8.5px; } }
   #prog .rowsbg { display: none; }
   #prog.hud .rowsbg {

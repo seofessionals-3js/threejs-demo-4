@@ -107,7 +107,7 @@ export function makeTextures(renderer) {
   // site earth, compacted with aggregate and subtle track grooves
   T.soil = canvasTex(S, 3.0, (g, s) => {
     const a = fbm(s, 4, 5), b = fbm(s, 24, 3), c = fbm(s, 96, 2);
-    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 1.5 + (b[i] - 0.5) * 0.75 + (c[i] - 0.5) * 0.55, 0, 1), [92, 78, 62], [134, 117, 96], [166, 149, 126], 15);
+    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 1.5 + (b[i] - 0.5) * 0.75 + (c[i] - 0.5) * 0.55, 0, 1), [96, 76, 56], [138, 111, 85], [170, 144, 114], 15);
     stones(g, s, s * 2.6, s / 900, s / 170, ['#9d9384', '#b5ab9b', '#7f766a', '#c7bca8', '#685e52']);
   });
   T.soilBump = canvasTex(512, 3.0, (g, s) => {
@@ -121,24 +121,24 @@ export function makeTextures(renderer) {
       const y = Math.floor(i / s) / s;
       const strata = Math.sin(y * Math.PI * 16 + a[i] * 4) * 0.08;
       return clamp(0.5 + (a[i] - 0.5) * 1.3 + (b[i] - 0.5) * 0.85 + (c[i] - 0.5) * 0.5 + strata, 0, 1);
-    }, [116, 88, 60], [156, 121, 84], [188, 154, 114], 12);
+    }, [116, 90, 64], [150, 120, 88], [184, 156, 120], 12);
     stones(g, s, s * 1.1, s / 700, s / 130, ['#a8957c', '#8d7a63', '#c2ad8e'], 0.4);
   });
   // Mediterranean slope grass
   T.grass = canvasTex(S, 3.8, (g, s) => {
     const a = fbm(s, 4, 4), b = fbm(s, 28, 3);
-    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 1.35 + (b[i] - 0.5) * 0.75, 0, 1), [84, 96, 56], [122, 128, 80], [158, 152, 104], 10);
+    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 1.35 + (b[i] - 0.5) * 0.75, 0, 1), [106, 130, 72], [134, 160, 94], [166, 186, 122], 10);
     const n = s * s / 60;
     for (let i = 0; i < n; i++) {
       const x = rnd() * s, y = rnd() * s, l = s / 320 + rnd() * s / 130, ang = -Math.PI / 2 + (rnd() - 0.5) * 1.1;
-      g.strokeStyle = rnd() < 0.55 ? `rgba(55,68,34,${0.25 + rnd() * 0.3})` : `rgba(198,188,136,${0.2 + rnd() * 0.28})`;
+      g.strokeStyle = rnd() < 0.55 ? `rgba(72,92,46,${0.25 + rnd() * 0.3})` : `rgba(196,206,150,${0.2 + rnd() * 0.28})`;
       g.lineWidth = 0.6 + rnd() * 0.9; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(ang) * l, y + Math.sin(ang) * l); g.stroke();
     }
   });
   // fair-faced architectural concrete, cast against 150 mm boards, tie holes on 600 mm grid + bump map
   T.conc = canvasTex(S, 2.4, (g, s) => {
     const a = fbm(s, 4, 4), b = fbm(s, 48, 2);
-    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 0.65 + (b[i] - 0.5) * 0.4, 0, 1), [172, 169, 162], [189, 186, 179], [204, 201, 194], 8);
+    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 0.65 + (b[i] - 0.5) * 0.4, 0, 1), [172, 168, 160], [189, 185, 176], [204, 200, 192], 8);
     const rows = 16, h = s / rows;
     for (let r = 0; r < rows; r++) {
       g.fillStyle = `rgba(${rnd() < 0.5 ? '70,66,60' : '240,236,228'},${0.025 + rnd() * 0.045})`; g.fillRect(0, r * h, s, h);
@@ -172,7 +172,7 @@ export function makeTextures(renderer) {
       let x = -rnd() * s * 0.4;
       while (x < s) {
         const L = s * (0.45 + rnd() * 0.45), v = (rnd() - 0.5) * 2;
-        g.fillStyle = `hsl(${31 + v * 1.8}, ${34 + v * 3}%, ${59 + v * 3.2}%)`;
+        g.fillStyle = `hsl(${33 + v * 1.6}, ${38 + v * 3}%, ${50 + v * 3.2}%)`;
         g.fillRect(x, r * h, L, h);
         for (let k = 0; k < 14; k++) {
           const gy = r * h + (k + 0.5) / 14 * h;
@@ -202,7 +202,7 @@ export function makeTextures(renderer) {
       const y = Math.floor(i / s) / s;
       const vein = Math.sin(y * Math.PI * 18 + a[i] * 5.5) * 0.14;
       return clamp(0.5 + (a[i] - 0.5) * 0.65 + (b[i] - 0.5) * 0.35 + vein, 0, 1);
-    }, [198, 184, 162], [218, 206, 186], [234, 225, 208], 7);
+    }, [208, 194, 166], [227, 213, 186], [241, 232, 210], 7);
     for (let i = 0; i < 180; i++) {
       g.fillStyle = `rgba(130, 114, 92, ${0.12 + rnd() * 0.18})`;
       g.fillRect(rnd() * s, rnd() * s, 3 + rnd() * 14, 1 + rnd() * 2);
@@ -215,7 +215,7 @@ export function makeTextures(renderer) {
       const y = Math.floor(i / s) / s;
       const vein = Math.sin(y * Math.PI * 44 + a[i] * 7.0) * 0.11;
       return clamp(0.5 + (a[i] - 0.5) * 0.5 + (b[i] - 0.5) * 0.3 + vein, 0, 1);
-    }, [201, 187, 164], [220, 209, 189], [236, 228, 213], 6);
+    }, [208, 194, 166], [227, 213, 186], [241, 232, 210], 6);
     for (let i = 0; i < s * 0.9; i++) {
       g.fillStyle = `rgba(128, 110, 86, ${0.10 + rnd() * 0.16})`;
       g.fillRect(rnd() * s, rnd() * s, 4 + rnd() * 22, 1 + rnd() * 1.6);
@@ -245,7 +245,7 @@ export function makeTextures(renderer) {
   // Architectural walnut veneer
   T.walnut = canvasTex(512, 1.6, (g, s) => {
     const a = fbm(s, 4, 3);
-    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 0.7, 0, 1), [72, 46, 29], [92, 61, 39], [112, 76, 50], 6);
+    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 0.7, 0, 1), [96, 70, 46], [122, 90, 60], [146, 112, 78], 6);
     for (let i = 0; i < 140; i++) {
       g.fillStyle = `rgba(42, 24, 12, ${0.08 + rnd() * 0.12})`;
       g.fillRect(0, rnd() * s, s, 1 + rnd() * 2);
@@ -275,8 +275,8 @@ export function makeTextures(renderer) {
   T.canvas = (() => {
     const c = document.createElement('canvas'); c.width = 520; c.height = 700; const g = c.getContext('2d');
     g.fillStyle = '#ede6d8'; g.fillRect(0, 0, 520, 700);
-    g.fillStyle = '#c85a28'; g.fillRect(56, 310, 408, 330);
-    g.fillStyle = '#d9a152'; g.beginPath(); g.arc(300, 245, 148, 0, 7); g.fill();
+    g.fillStyle = '#d43a2a'; g.fillRect(56, 310, 408, 330);
+    g.fillStyle = '#e3b84a'; g.beginPath(); g.arc(300, 245, 148, 0, 7); g.fill();
     g.fillStyle = '#ede6d8'; g.beginPath(); g.arc(170, 310, 62, 0, Math.PI); g.fill();
     g.fillStyle = '#23211e'; g.fillRect(396, 68, 20, 572);
     g.strokeStyle = '#23211e'; g.lineWidth = 3; g.strokeRect(56, 68, 408, 572);
@@ -296,7 +296,7 @@ export function makeTextures(renderer) {
   // Industrial heavy machinery finish: weathered ochre-yellow with panel seams & grime
   T.machine = canvasTex(512, 1.6, (g, s) => {
     const a = fbm(s, 6, 3);
-    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 0.35, 0, 1), [204, 142, 22], [222, 160, 30], [235, 176, 44], 8);
+    ramp(g, s, (i) => clamp(0.5 + (a[i] - 0.5) * 0.35, 0, 1), [214, 158, 24], [233, 178, 30], [243, 194, 48], 8);
     g.strokeStyle = 'rgba(40,32,18,0.28)'; g.lineWidth = 2;
     g.strokeRect(12, 12, s - 24, s - 24);
     g.beginPath(); g.moveTo(0, s * 0.5); g.lineTo(s, s * 0.5); g. moveTo(s * 0.5, 0); g.lineTo(s * 0.5, s); g.stroke();
@@ -304,7 +304,7 @@ export function makeTextures(renderer) {
   // Fine high-density safety debris mesh (no giant LEGO holes)
   T.net = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
-    g.fillStyle = '#df5618'; g.fillRect(0, 0, 128, 128);
+    g.fillStyle = '#e8632a'; g.fillRect(0, 0, 128, 128);
     g.globalCompositeOperation = 'destination-out'; g.fillStyle = '#000';
     for (let y = 10; y < 120; y += 8) {
       for (let x = (y % 16 === 10 ? 4 : 8); x < 128; x += 8) {
@@ -312,7 +312,7 @@ export function makeTextures(renderer) {
       }
     }
     g.globalCompositeOperation = 'source-over';
-    g.fillStyle = '#c8460e'; g.fillRect(0, 0, 128, 8); g.fillRect(0, 120, 128, 8);
+    g.fillStyle = '#c9501c'; g.fillRect(0, 0, 128, 8); g.fillRect(0, 120, 128, 8);
     const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MAX_ANISO; return t;
   })();
   // Welded wire Heras fencing mesh
@@ -358,8 +358,8 @@ export const STAIR = { z: DOOR.zc, half: 0.52, x0: 26.4, x1: 20.2, xl: 19.22, y0
 const ruts = (x, z) => 0.03 * (noise2(x * 0.9, z * 0.9) - 0.5) + 0.018 * (noise2(x * 3.1, z * 3.1) - 0.5);
 
 // ---------------------------------------------------------------- drawing materials (the sheet)
-// The palette of the sheet: paper, a deep forest ink, a leaf green for fresh lines on paper and a lime for light on dark.
-export const PAL = { paper: '#f1f0e6', ink: '#10241a', leaf: '#5fa512', lime: '#c4f03e', deep: '#0b1a12', tint: '#e2ecc6' };
+// The palette of the sheet: paper, black line, Neubau red (the accent) for what is new, a lighter red for light on dark; tints: red = Neubau, yellow = Aushub/Provisorium, grey = Bestand.
+export const PAL = { paper: '#f5f4ef', ink: '#17191c', leaf: '#d43a2a', lime: '#ee5a48', deep: '#17191c', tint: '#f4cfc8', temp: '#f8e9a6', old: '#dddcd7' };
 export const PAPER = new THREE.Color(PAL.paper);
 export const INK = new THREE.Color(PAL.ink);
 export const ACCENT = new THREE.Color(PAL.leaf);
@@ -371,7 +371,7 @@ export const U = {
   uInk: { value: rgb(PAL.ink) },
   uAccent: { value: rgb(PAL.leaf) }, uLime: { value: rgb(PAL.lime) }, uDeep: { value: rgb(PAL.deep) },
   // the fills of a drawing: what is new in its weeks, temporary works, earthworks, and what stood before
-  uTintNew: { value: rgb(PAL.tint) }, uTintTemp: { value: rgb(PAL.tint) }, uTintEarth: { value: rgb(PAL.tint) }, uTintOld: { value: rgb(PAL.paper) },
+  uTintNew: { value: rgb(PAL.tint) }, uTintTemp: { value: rgb(PAL.temp) }, uTintEarth: { value: rgb(PAL.temp) }, uTintOld: { value: rgb(PAL.old) },
   real: { value: 6 }, fx: { value: 1 },
 };
 const DRAW_VS = `
@@ -443,7 +443,7 @@ let ENV = null;
 const std = (o) => { if (!QL.bump) { delete o.bumpMap; delete o.bumpScale; } return new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.88, metalness: 0, envMap: ENV, envMapIntensity: 0.32 }, o)); };
 // Every real material knows its week. A part does not pop in: for its first BUILD weeks it is made of slices of
 // itself, thin at first with gaps you can see through, which widen until they meet. While it grows the part is
-// washed in lime and every slice carries a bright edge. U.fx at 0 (reduced motion) turns that off.
+// washed in a touch of Neubau red and every slice carries a bright edge. U.fx at 0 (reduced motion) turns that off.
 const WEEKLY = (s) => {
   s.uniforms.uNow = U.real; s.uniforms.uFx = U.fx;
   s.vertexShader = s.vertexShader.replace('void main() {', `uniform float uNow; attribute float aWeek; attribute float aOut; varying float vWk; varying float vOt; varying vec3 vBw;
@@ -462,7 +462,7 @@ void main() {
     float bW = mix(.24, 1.16, bS * bS);              // the slices stay thin for most of the time, then close quickly
     if (bL + (bN - .5) * .3 > bW) discard;
     bE = smoothstep(bW - .4, bW, bL) * (1. - bS);
-  }`).replace('#include <tonemapping_fragment>', `if (bK < 1.) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(.6, .93, .16) * 1.35, (1. - bK) * .3 + bE * .62);
+  }`).replace('#include <tonemapping_fragment>', `if (bK < 1.) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(.93, .30, .22) * 1.2, (1. - bK) * .14 + bE * .7);
   #include <tonemapping_fragment>`);
 };
 export function weekly(m) { m.onBeforeCompile = WEEKLY; m.customProgramCacheKey = () => 'weekly'; return m; }
@@ -470,8 +470,8 @@ export const DEPTH_WEEKLY = weekly(new THREE.MeshDepthMaterial({ depthPacking: T
 
 // Small flat coloured things (books, pots, cushions) share a material and carry their colour on the vertices,
 // so a shelf of books in five colours is one draw call instead of five.
-export const MATTE = { book0: 0x8e3b2a, book1: 0x2f4a5a, book2: 0xd8cfb8, book3: 0x5c6b4a, book4: 0x1f1e1c, terracotta: 0xad623e, soilPot: 0x3b2f25 };
-export const SOFT = { cushionA: 0xb85228, cushionB: 0xcba466, cushionC: 0xe6dfd2, sofaDark: 0xb7a892 };
+export const MATTE = { book0: 0x7a5a3c, book1: 0x6b6f73, book2: 0xe3d5ba, book3: 0x86a05e, book4: 0x17191c, terracotta: 0xb98c56, soilPot: 0x3b2f25 };
+export const SOFT = { cushionA: 0x7a5a3c, cushionB: 0xe3d5ba, cushionC: 0xe9e8e1, sofaDark: 0x9b9d9f };
 
 export function makeMaterials(T, env) {
   ENV = env;
@@ -482,13 +482,13 @@ export function makeMaterials(T, env) {
     conc: std({ map: T.conc, bumpMap: T.concBump, bumpScale: 0.015, roughness: 0.78 }),
     oak: std({ map: T.oak, bumpMap: T.oakBump, bumpScale: 0.008, roughness: 0.42, envMapIntensity: 0.52 }),
     floorL: std({ map: T.travertine, roughness: 0.5 }),
-    plaster: std({ color: 0xede8df, roughness: 0.92 }),
+    plaster: std({ color: 0xece8de, roughness: 0.92 }),
     gravel: std({ color: 0xb3ab9c, roughness: 0.98 }),
     clad: std({ map: T.clad, bumpMap: T.cladBump, bumpScale: 0.012, roughness: 0.74, envMapIntensity: 0.3 }),
     soffit: std({ map: T.oak, color: 0xd6ad7c, bumpMap: T.oakBump, bumpScale: 0.006, roughness: 0.6, envMapIntensity: 0.3 }),
-    water: std({ color: 0x6fb3b4, roughness: 0.05, metalness: 0.15, envMapIntensity: 1.7 }),
-    cloth: std({ color: 0x2f6f3e, bumpMap: T.linenBump, bumpScale: 0.002, roughness: 0.96, envMapIntensity: 0.08 }),
-    lake: std({ color: 0x51788c, roughness: 0.22, metalness: 0.1, envMapIntensity: 1.1 }),
+    water: std({ color: 0x7fb9c6, roughness: 0.05, metalness: 0.15, envMapIntensity: 1.7 }),
+    cloth: std({ color: 0x6f8a52, bumpMap: T.linenBump, bumpScale: 0.002, roughness: 0.96, envMapIntensity: 0.08 }),
+    lake: std({ color: 0x9fb8c2, roughness: 0.22, metalness: 0.1, envMapIntensity: 1.1 }),
     pave: std({ map: T.pave, bumpMap: T.concBump, bumpScale: 0.01, roughness: 0.8 }),
     sofa: std({ map: T.linen, bumpMap: T.linenBump, bumpScale: 0.006, roughness: 0.9, envMapIntensity: 0.18 }),
     rugM: std({ map: T.rug, bumpMap: T.linenBump, bumpScale: 0.012, roughness: 0.98, envMapIntensity: 0.1 }),
@@ -500,32 +500,32 @@ export function makeMaterials(T, env) {
     shade: std({ color: 0xfff5e0, emissive: 0xffc885, emissiveIntensity: 0, roughness: 0.5 }),
     ink: std({ color: 0x1f1e1c, roughness: 0.42, metalness: 0.2 }),
     steel: std({ color: 0x242422, metalness: 0.68, roughness: 0.38, envMapIntensity: 0.55 }),
-    glass: new THREE.MeshBasicMaterial({ color: 0xcfe2e6, envMap: env, combine: THREE.MixOperation, reflectivity: 0.26, transparent: true, opacity: 0.09, depthWrite: false }),
+    glass: new THREE.MeshBasicMaterial({ color: 0xc5dadf, envMap: env, combine: THREE.MixOperation, reflectivity: 0.26, transparent: true, opacity: 0.09, depthWrite: false }),
     walnut: std({ map: T.walnut, bumpMap: T.oakBump, bumpScale: 0.006, roughness: 0.48, envMapIntensity: 0.42 }),
-    leather: std({ color: 0x824829, bumpMap: T.linenBump, bumpScale: 0.003, roughness: 0.46, envMapIntensity: 0.48 }),
+    leather: std({ color: 0x7a5a3c, bumpMap: T.linenBump, bumpScale: 0.003, roughness: 0.46, envMapIntensity: 0.48 }),
     linen: std({ map: T.linen, bumpMap: T.linenBump, bumpScale: 0.005, roughness: 0.9 }),
     teak: std({ map: T.oak, color: 0xc29a72, roughness: 0.62 }),
     ply: std({ color: 0xc49866, bumpMap: T.oakBump, bumpScale: 0.005, roughness: 0.82 }),
-    prop: std({ color: 0xdba028, roughness: 0.46, metalness: 0.35, envMapIntensity: 0.45 }),
+    prop: std({ color: 0xe3b84a, roughness: 0.46, metalness: 0.35, envMapIntensity: 0.45 }),
     yellow: std({ map: T.machine, bumpMap: T.concBump, bumpScale: 0.004, roughness: 0.38, metalness: 0.22, envMapIntensity: 0.65 }),
     dark: std({ color: 0x383b3f, roughness: 0.46, metalness: 0.42, envMapIntensity: 0.65 }),
     rubber: std({ color: 0x2a2b2d, roughness: 0.65, metalness: 0.35, envMapIntensity: 0.45 }),
     chrome: std({ color: 0xe6e8ea, metalness: 0.98, roughness: 0.12, envMapIntensity: 1.2 }),
-    cabGlass: new THREE.MeshBasicMaterial({ color: 0x8cb0bd, envMap: env, combine: THREE.MixOperation, reflectivity: 0.45, transparent: true, opacity: 0.34, depthWrite: false }),
-    beacon: std({ color: 0xff6d00, emissive: 0xe85d04, emissiveIntensity: 0.6, roughness: 0.2 }),
+    cabGlass: new THREE.MeshBasicMaterial({ color: 0x9fbcc4, envMap: env, combine: THREE.MixOperation, reflectivity: 0.45, transparent: true, opacity: 0.34, depthWrite: false }),
+    beacon: std({ color: 0xe8632a, emissive: 0xe8632a, emissiveIntensity: 0.6, roughness: 0.2 }),
     rebar: std({ color: 0x563826, roughness: 0.7, metalness: 0.38 }),
-    cap: std({ color: 0xe85d04, roughness: 0.45 }),
+    cap: std({ color: 0xe8632a, roughness: 0.45 }),
     timber: std({ map: T.oak, color: 0xc8a276, roughness: 0.85 }),
     galv: std({ color: 0xc4c6c4, metalness: 0.62, roughness: 0.42, envMapIntensity: 0.45 }),
     wire: std({ map: T.wire, alphaTest: 0.5, side: THREE.DoubleSide, metalness: 0.6, roughness: 0.48 }),
     net: std({ map: T.net, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.65, envMapIntensity: 0.15 }),
-    block: std({ map: T.conc, color: 0xa8a59e, roughness: 0.9 }),
+    block: std({ map: T.conc, color: 0xb8b4ab, roughness: 0.9 }),
     blinding: std({ map: T.concFresh, color: 0x96938c, roughness: 0.92 }),
     cabin: std({ color: 0xe8e5de, roughness: 0.55 }),
     cabinTrim: std({ color: 0x2f363b, roughness: 0.55 }),
-    leaf: std({ color: 0x677542, roughness: 0.85, flatShading: true }),
-    leafDark: std({ color: 0x3b4829, roughness: 0.85, flatShading: true }),
-    olive: std({ color: 0x6c7a4f, roughness: 0.85, flatShading: true }),
+    leaf: std({ color: 0x86a05e, roughness: 0.85, flatShading: true }),
+    leafDark: std({ color: 0x607a45, roughness: 0.85, flatShading: true }),
+    olive: std({ color: 0x7d8c63, roughness: 0.85, flatShading: true }),
     bark: std({ color: 0x5a4f43, roughness: 0.96 }),
   };
   for (const k in R) weekly(R[k]);
