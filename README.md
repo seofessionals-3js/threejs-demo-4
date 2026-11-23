@@ -1,4 +1,6 @@
-# three.js Demo 4 · Projekt Steininger
+# three.js Demo 2 · Projekt Steininger
+
+In der Übersicht und in der durchlaufenden Schau ist das die Nummer 2; das Repository heißt weiter `threejs-demo-4`, damit alle Adressen gültig bleiben.
 
 Ein Bauablaufplan für ein dreigeschossiges Travertinhaus am Hang über dem See: sechs Zeichnungen eines Hauses, von der Baugrube bis zur Übergabe. Scrollen Sie in Zeichnung 01, und hinter der Tusche baut sich die Baustelle selbst: feine Schnitte durch das echte Gelände erscheinen in der Zeichnung, wandern, leuchten an ihren Kanten und wachsen zusammen. Dann wird der Scroll zum Kalender. Sie gehen über die Baustelle, während das Haus wächst, steigen über die Gerüsttreppe auf den Balkon, gehen in Woche 18 durch einen Wald aus Stützen, und sehen zu, wie drei Geschosse von oben nach unten eingerichtet werden. Am Ende öffnet sich die Schiebetür zur Poolterrasse.
 
